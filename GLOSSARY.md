@@ -1,0 +1,127 @@
+# Pyramida 2 — Glossary
+
+Status: living terminology document. Definitions describe the current design direction and remain open to deliberate revision.
+
+The glossary favours explicit repetition over pronouns when repetition makes the subject easier to follow. A definition may repeat the complete term within one sentence or paragraph instead of replacing the complete term with “it” or another ambiguous reference.
+
+Glossary terminology is written for design discussion and implementation clarity. Player-facing labels are separate and deliberately shorter. [localization/ui_text.csv](localization/ui_text.csv) is the authoritative catalog for player-facing English, text keys, character limits, interface locations, and translation guidance.
+
+## Anchor Node
+
+An `Anchor Node` is a structural attachment point at the centre of one Sub-Unit side. Every Anchor Node belongs to one specific Sub-Unit and one specific side direction. Two opposing Anchor Nodes may share the same physical position, but each Anchor Node keeps a separate identity.
+
+## Building
+
+A `Building` is a constructed entity assembled from physical resources. A Building may contain smaller groups such as Levels, Flats, or Rooms, but a Building does not require every possible group. A completed Building remains visible outside Building Mode.
+
+## Building Mode
+
+`Building Mode` is the player interaction mode for placing Construction Sites and inspecting unfinished construction. Building Mode reveals the planned geometry of every revealed unfinished Construction Site. Leaving Building Mode hides unfinished planned geometry while installed construction remains visible.
+
+## Capacity Grade
+
+`Capacity Grade` describes the service capacity of a Utility segment or Utility device. Capacity Grade uses the values 1×, 2×, 3×, and 4× when the Utility family supports those values. Capacity Grade does not require proportional visual size growth.
+
+## Chunk
+
+A `Chunk` is an addressed horizontal region used for world generation, discovery storage, streaming, and save indexing. A Chunk does not imply that every vertical cell in the region is generated, materialized, or stored.
+
+## Citizen
+
+A `Citizen` is a person living and working in the simulated settlement. A Citizen follows direct player orders in the current prototype. A Citizen can move, gather, reserve, carry, build, and perform other implemented work.
+
+## Elevator
+
+An `Elevator` is a deferred Building that transports Citizens between Floors through an Elevator Shaft. Elevator route cost includes the walk to the Elevator, predicted waiting time, travel time, and the walk from the destination Floor.
+
+## Elevator Car
+
+An `Elevator Car` is the moving, occupiable part of an Elevator. The standard one-World-Unit Elevator Car has a provisional capacity of four Citizens. A full Elevator Car completes onboard destination requests but does not stop only to collect additional waiting Citizens.
+
+## Elevator Shaft
+
+An `Elevator Shaft` is the reserved vertical construction space in which an Elevator Car moves. An Elevator Shaft occupies one World Unit in width and depth and spans at least two World Units vertically.
+
+## Floor
+
+A `Floor` is a traversable vertical level that may be connected to other Floors by terrain, stairs, ladders, or a later Elevator. A Floor is a navigation concept and does not require a complete enclosed Building Level.
+
+## Cloth
+
+`Cloth` is the canonical source-agnostic textile resource. Cloth may originate from cotton, linen, or wool, while every downstream recipe consumes Cloth rather than a separate resource for each origin.
+
+## Construction Site
+
+A `Construction Site` is a placed, unfinished Building location. A Construction Site records the selected Building type, position, orientation, required physical resources, delivered physical resources, and completion state. A Construction Site displays planned geometry during Building Mode and replaces planned geometry with installed construction as work progresses.
+
+## Cord Path Point
+
+A `Cord Path Point` is a shape-control point used by a flexible cord. A Cord Path Point may guide sag or bending through free space. A Cord Path Point does not provide structural attachment and does not replace an Anchor Node or Utility Port.
+
+## Discovery Mask
+
+A `Discovery Mask` is a persistent binary record of the horizontal Sub-Unit areas revealed by Citizens. A Discovery Mask does not reveal or serialize covered underground cells.
+
+## Cosmetic Variant
+
+A `Cosmetic Variant` is one of at least three visual forms available to a placeable Building or tile. Changing a Cosmetic Variant changes appearance without changing function, collision, capacity, occupancy, connection points, material cost, or construction time.
+
+## Forecast Ring
+
+The `Forecast Ring` is the streaming region beyond visible presentation where terrain and future outside-settlement state are prepared before a Citizen can reach them.
+
+## Generator Version
+
+A `Generator Version` identifies an immutable deterministic world-generation algorithm. A save retains the Generator Version so untouched coordinates continue to produce the same base world after newer generators are released.
+
+## Hard Surface
+
+A `Hard Surface` is a walkable form of the Surface construction family. A Hard Surface may act as a floor, road, platform, ceiling, terrace, or roof according to context. A Hard Surface may support construction above the Hard Surface.
+
+## Permanent Detail Seed
+
+A `Permanent Detail Seed` is deterministic data used to reproduce safe visual variation for a persistent world element. A Permanent Detail Seed may control details such as log bend, plank spacing, colour variation, wear, or idle-motion phase. A Permanent Detail Seed must not change logical geometry.
+
+## Player-Facing Label
+
+A `Player-Facing Label` is text displayed inside the game interface. A Player-Facing Label should normally use one short noun for an object or one short verb for an action. A Player-Facing Label does not need to repeat the complete design term when the interface context already identifies the subject.
+
+## Physical Resource
+
+A `Physical Resource` is a resource represented by a persistent world object while the Physical Resource is loose, reserved, carried, or installed. A Physical Resource preserves relevant identity and material provenance across those states.
+
+## RTS Unit Mode
+
+`RTS Unit Mode` is the player interaction mode entered by selecting one or more Citizens. RTS Unit Mode supports Citizen selection and movement orders. RTS Unit Mode uses a fully rounded count badge for the selected Citizen count.
+
+## Soft Cover
+
+A `Soft Cover` is a non-walkable form of the Surface construction family. A Soft Cover may use cloth, hay, or another light material. A Soft Cover provides shade and permits construction above the Soft Cover.
+
+## Sparse World Delta
+
+A `Sparse World Delta` records a persistent difference from the deterministic base world, such as excavated terrain, a placed Building, changed entity state, or a tombstone for a removed generated entity. Unchanged base terrain is not a Sparse World Delta.
+
+## Sub-Unit
+
+A `Sub-Unit` is one of eight equal construction volumes inside a World Unit. Every Sub-Unit has an edge length equal to one half of a World Unit. Every Sub-Unit owns six Anchor Nodes, with one Anchor Node centred on each Sub-Unit side.
+
+## Text Key
+
+A `Text Key` is a stable machine-readable name used by code to request a Player-Facing Label. Every Text Key contains at least two complete words separated by underscores, such as `exit_button_text` or `exit_button_tooltip_text`. A Text Key remains stable when the displayed English or another translation changes.
+
+## Support
+
+A `Support` is a Building made from four installed corner logs. A Support permits construction above the Support. A Support may result from direct construction or from reconstructing a Pergola and returning the Pergola's Soft Cover material.
+
+## Surface
+
+A `Surface` is a construction family that covers an area and permits construction above the Surface. The Surface family contains Hard Surface and Soft Cover forms. Walkability depends on the selected Surface form.
+
+## Utility Port
+
+A `Utility Port` is a functional connection point owned by a Building, tool, or Utility device. A Utility Port connects compatible Utility services. A Utility Port remains separate from structural Anchor Nodes and flexible Cord Path Points.
+
+## World Unit
+
+A `World Unit` is the standard 1×1×1 construction space. Every World Unit contains exactly eight Sub-Units arranged as 2×2×2. A World Unit currently has no assigned real-world metre value.
