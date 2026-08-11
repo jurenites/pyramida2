@@ -12,6 +12,7 @@ const BuildMetadata = preload("res://scripts/build_info.gd")
 const ExcavationSiteScript = preload("res://scripts/excavation_site.gd")
 const DeterministicRandomScript = preload("res://scripts/deterministic_random.gd")
 const GridNavigationScript = preload("res://scripts/grid_navigation.gd")
+const CitizenNavigationPolicyScript = preload("res://scripts/citizen_navigation_policy.gd")
 const AppliedLabourScript = preload("res://scripts/applied_labour.gd")
 const LabourProgressBarScript = preload("res://scripts/labour_progress_bar.gd")
 const PileStorageScript = preload("res://scripts/pile_storage.gd")
@@ -98,6 +99,7 @@ var _selected_citizens: Array[Citizen] = []
 var _citizens: Array[Citizen] = []
 var _items: Array[WorldItem] = []
 var _construction_sites: Array[SupportConstructionSite] = []
+var _placed_piles: Array[PileStorage] = []
 var _excavation_sites: Array[ExcavationSite] = []
 var _excavated_cells: Dictionary = {}
 var _excavated_pit_roots: Dictionary = {}
@@ -110,6 +112,7 @@ var _selected_greenery: WorldItem
 var _landscape_mode := false
 var _landscape_tool := "remove"
 var _placing_support := false
+var _placing_building_id := "support"
 var _placing_excavation := false
 var _removing_buildings := false
 var _selected_building: SupportConstructionSite
@@ -393,10 +396,10 @@ func _handle_world_click(screen_position: Vector2, exact_selection := false, kee
 	var world_object: Variant = _world_object_for(collider)
 
 	if _placing_support:
-		var construction_site_position := _snap_to_world_unit(hit.position)
-		var placement := _support_placement_evaluation(construction_site_position)
+		var construction_site_position := _building_placement_position(hit.position, _placing_building_id)
+		var placement := _building_placement_evaluation(construction_site_position, _placing_building_id)
 		if bool(placement.get("valid", false)):
-			_place_support_construction_site(construction_site_position, keep_placing)
+			_place_building(construction_site_position, _placing_building_id, keep_placing)
 		return
 	if _placing_excavation:
 		if collider != null and collider.get_meta("world_kind", "") == "ground":
@@ -694,7 +697,10 @@ func _handle_command_order(screen_position: Vector2) -> void:
 	if world_object is SupportConstructionSite:
 		var support := world_object as SupportConstructionSite
 		if support.is_complete():
-			_order_enter_completed_building(_selected_citizen, support)
+			if support.is_workshop():
+				_order_process_sawmill(_selected_citizen, support)
+			else:
+				_order_enter_completed_building(_selected_citizen, support)
 		else:
 			var woke_from_sleep := _wake_for_direct_order(_selected_citizen)
 			if not woke_from_sleep:
@@ -777,7 +783,9 @@ func _assign_group_navigation_task(
 ) -> bool:
 	_cancel_active_work(citizen)
 	target_position = _clamp_to_playable_world(target_position)
-	var route := _build_navigation_route(citizen.global_position, target_position, false)
+	var route_plan := _navigation_route_plan(citizen.global_position, target_position, false)
+	var route: Array[Vector3] = []
+	route.assign(route_plan.get("route", []))
 	if route.is_empty():
 		citizen.finish_task(UIText.CITIZEN_NO_ROUTE_STATUS_TEXT)
 		return false
@@ -790,10 +798,20 @@ func _assign_group_navigation_task(
 			route_point.y,
 			route_point.z + lane_offset.y
 		))
+	var is_emergency_escape := bool(route_plan.get("emergency_escape", false))
+	var escape_delay := (
+		CitizenNavigationPolicyScript.EMERGENCY_ESCAPE_DELAY_SECONDS
+		if is_emergency_escape else 0.0
+	)
 	citizen.assign_route(
 		route,
-		{"kind": ActionCatalog.MOVE, "status_text_key": UIText.CITIZEN_WALKING_STATUS_TEXT},
-		_road_travel_costs
+		{
+			"kind": ActionCatalog.MOVE,
+			"status_text_key": UIText.CITIZEN_WALKING_STATUS_TEXT,
+			"emergency_escape": is_emergency_escape,
+		},
+		_road_travel_costs,
+		escape_delay
 	)
 	return true
 
@@ -940,6 +958,11 @@ func _enter_build_mode(place_support: bool) -> void:
 	_refresh_planned_building_visibility()
 
 
+func _enter_building_placement(building_id: String) -> void:
+	_placing_building_id = building_id
+	_enter_build_mode(true)
+
+
 func _leave_build_mode() -> void:
 	_clear_deconstruction_hover_preview()
 	_build_mode = false
@@ -1022,6 +1045,17 @@ func _remove_world_object(world_object: Variant) -> bool:
 		support.queue_free()
 		_refresh_planned_building_visibility()
 		return true
+	if world_object is PileStorage and world_object != _starting_pile:
+		var pile := world_object as PileStorage
+		_clear_deconstruction_hover_preview()
+		for pile_cell in pile.world_footprint_cells():
+			_occupied_static_world_units.erase(pile_cell)
+		_placed_piles.erase(pile)
+		if _selected_world_object == pile:
+			_clear_object_selection()
+		pile.visible = false
+		pile.queue_free()
+		return true
 	if world_object is ExcavationSite:
 		var excavation_site := world_object as ExcavationSite
 		_clear_deconstruction_hover_preview()
@@ -1077,12 +1111,15 @@ func _cancel_jobs_targeting_removed_object(world_object: Node3D) -> void:
 		if (
 			citizen_task.get("target") != world_object
 			and citizen_task.get("construction_site") != world_object
+			and citizen_task.get("sawmill") != world_object
 		):
 			continue
 		var was_active := _active_work.has(citizen)
 		_cancel_active_work(citizen)
 		if not was_active and citizen_task.get("construction_site") == world_object:
 			_return_unapplied_building_block(citizen, citizen_task)
+		elif not was_active and citizen_task.get("sawmill") == world_object and bool(citizen_task.get("resource_kind", "") == "log"):
+			_return_sawmill_input(citizen, citizen_task)
 		citizen.clear_work_assignment()
 		citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
 
@@ -1156,67 +1193,148 @@ func _update_world_selection_outline() -> void:
 	if not is_instance_valid(_selected_world_object) or not _selected_world_object.visible:
 		_selection_outline_root.visible = false
 		return
-	var bounds := _world_visual_bounds(_selected_world_object).grow(0.045)
-	# Grounded objects should read as wrapped from the visible surface upward,
-	# rather than drawing the lower face beneath Sand.
-	if bounds.position.y < 0.065 and bounds.end.y > 0.065:
-		var visible_height := bounds.end.y - 0.065
-		bounds.position.y = 0.065
-		bounds.size.y = visible_height
-	var minimum := bounds.position
-	var maximum := bounds.end
+	var selection_centre := _selected_world_object.global_position
+	var line_width := _selection_world_line_width(selection_centre)
 	var transforms: Array[Transform3D] = []
-	for y_value in [minimum.y, maximum.y]:
-		transforms.append(_box_segment_transform(
-			Vector3(minimum.x, y_value, minimum.z), Vector3(maximum.x, y_value, minimum.z)
+	var occupied_boxes := _selection_outline_local_boxes(_selected_world_object)
+	if not occupied_boxes.is_empty():
+		for occupied_box in occupied_boxes:
+			transforms.append_array(_contained_box_edge_transforms(
+				occupied_box,
+				_selected_world_object.global_transform,
+				line_width,
+				true
+			))
+	else:
+		# Organic and loose objects retain the lighter upper/lower frame, but it
+		# now rotates rigidly with the object instead of using a changing world AABB.
+		var local_bounds := _local_visual_bounds(_selected_world_object)
+		selection_centre = _selected_world_object.global_transform * local_bounds.get_center()
+		line_width = _selection_world_line_width(selection_centre)
+		transforms.append_array(_contained_box_edge_transforms(
+			local_bounds,
+			_selected_world_object.global_transform,
+			line_width,
+			false
 		))
-		transforms.append(_box_segment_transform(
-			Vector3(maximum.x, y_value, minimum.z), Vector3(maximum.x, y_value, maximum.z)
-		))
-		transforms.append(_box_segment_transform(
-			Vector3(maximum.x, y_value, maximum.z), Vector3(minimum.x, y_value, maximum.z)
-		))
-		transforms.append(_box_segment_transform(
-			Vector3(minimum.x, y_value, maximum.z), Vector3(minimum.x, y_value, minimum.z)
-		))
-	# Keep the upper and lower frames visually separate. Vertical connectors are
-	# intentionally hidden for now so tall Trees do not read as a wireframe cage.
-	_apply_selection_outline_transforms(transforms, bounds.get_center())
+	_apply_selection_outline_transforms(transforms, line_width)
 
 
 func _update_ground_selection_outline() -> void:
 	# Sit above the 0.025 fog plane with enough separation to avoid depth loss
 	# while remaining visually attached to the selected surface tile.
 	var cell_origin := Vector3(float(_selected_ground_cell.x), 0.065, float(_selected_ground_cell.y))
-	var corner_a := cell_origin
-	var corner_b := cell_origin + Vector3(1.0, 0.0, 0.0)
-	var corner_c := cell_origin + Vector3(1.0, 0.0, 1.0)
-	var corner_d := cell_origin + Vector3(0.0, 0.0, 1.0)
+	var selection_centre := cell_origin + Vector3(0.5, 0.0, 0.5)
+	var line_width := _selection_world_line_width(selection_centre)
+	var inset := line_width * 0.5
 	var transforms: Array[Transform3D] = []
-	transforms.append(_box_segment_transform(corner_a, corner_b))
-	transforms.append(_box_segment_transform(corner_b, corner_c))
-	transforms.append(_box_segment_transform(corner_c, corner_d))
-	transforms.append(_box_segment_transform(corner_d, corner_a))
-	_apply_selection_outline_transforms(
-		transforms,
-		cell_origin + Vector3(0.5, 0.0, 0.5)
-	)
+	transforms.append(_box_segment_transform(
+		cell_origin + Vector3(0.0, 0.0, inset),
+		cell_origin + Vector3(1.0, 0.0, inset)
+	))
+	transforms.append(_box_segment_transform(
+		cell_origin + Vector3(0.0, 0.0, 1.0 - inset),
+		cell_origin + Vector3(1.0, 0.0, 1.0 - inset)
+	))
+	transforms.append(_box_segment_transform(
+		cell_origin + Vector3(inset, 0.0, 0.0),
+		cell_origin + Vector3(inset, 0.0, 1.0)
+	))
+	transforms.append(_box_segment_transform(
+		cell_origin + Vector3(1.0 - inset, 0.0, 0.0),
+		cell_origin + Vector3(1.0 - inset, 0.0, 1.0)
+	))
+	_apply_selection_outline_transforms(transforms, line_width)
 
 
 func _apply_selection_outline_transforms(
 	transforms: Array[Transform3D],
-	selection_centre: Vector3
+	line_width: float
 ) -> void:
-	_selection_outline_mesh.size = Vector3(
-		_selection_world_line_width(selection_centre),
-		_selection_world_line_width(selection_centre),
-		1.0
-	)
+	_selection_outline_mesh.size = Vector3(line_width, line_width, 1.0)
 	var multimesh := _selection_outline_root.multimesh
 	multimesh.instance_count = transforms.size()
 	for transform_index in transforms.size():
 		multimesh.set_instance_transform(transform_index, transforms[transform_index])
 	_selection_outline_root.visible = true
+
+
+func _selection_outline_local_boxes(world_object: Node3D) -> Array[AABB]:
+	if world_object.has_method("selection_outline_local_boxes"):
+		var supplied_boxes: Variant = world_object.call("selection_outline_local_boxes")
+		if supplied_boxes is Array:
+			var result: Array[AABB] = []
+			for supplied_box in supplied_boxes:
+				if supplied_box is AABB:
+					var occupied_box: AABB = supplied_box
+					if occupied_box.has_volume():
+						result.append(occupied_box)
+			return result
+	return []
+
+
+func _contained_box_edge_transforms(
+	local_bounds: AABB,
+	object_transform: Transform3D,
+	line_width: float,
+	include_vertical_edges: bool
+) -> Array[Transform3D]:
+	var minimum := local_bounds.position
+	var maximum := local_bounds.end
+	var x_inset := minf(line_width * 0.5, local_bounds.size.x * 0.5)
+	var y_inset := minf(line_width * 0.5, local_bounds.size.y * 0.5)
+	var z_inset := minf(line_width * 0.5, local_bounds.size.z * 0.5)
+	var x_sides := [minimum.x + x_inset, maximum.x - x_inset]
+	var y_sides := [minimum.y + y_inset, maximum.y - y_inset]
+	var z_sides := [minimum.z + z_inset, maximum.z - z_inset]
+	var transforms: Array[Transform3D] = []
+	for y_value in y_sides:
+		for z_value in z_sides:
+			transforms.append(_oriented_box_segment_transform(
+				object_transform * Vector3(minimum.x, y_value, z_value),
+				object_transform * Vector3(maximum.x, y_value, z_value),
+				object_transform.basis * Vector3.UP,
+				object_transform.basis * Vector3.FORWARD
+			))
+	for y_value in y_sides:
+		for x_value in x_sides:
+			transforms.append(_oriented_box_segment_transform(
+				object_transform * Vector3(x_value, y_value, minimum.z),
+				object_transform * Vector3(x_value, y_value, maximum.z),
+				object_transform.basis * Vector3.RIGHT,
+				object_transform.basis * Vector3.UP
+			))
+	if include_vertical_edges:
+		for x_value in x_sides:
+			for z_value in z_sides:
+				transforms.append(_oriented_box_segment_transform(
+					object_transform * Vector3(x_value, minimum.y, z_value),
+					object_transform * Vector3(x_value, maximum.y, z_value),
+					object_transform.basis * Vector3.RIGHT,
+					object_transform.basis * Vector3.FORWARD
+				))
+	# Degenerate dimensions can collapse both inset sides onto the same line.
+	# Physical occupancy boxes are volumetric, but this keeps the helper safe.
+	if local_bounds.size.x <= 0.0 or local_bounds.size.y <= 0.0 or local_bounds.size.z <= 0.0:
+		return []
+	return transforms
+
+
+func _oriented_box_segment_transform(
+	segment_start: Vector3,
+	segment_end: Vector3,
+	cross_axis_x: Vector3,
+	cross_axis_y: Vector3
+) -> Transform3D:
+	var offset := segment_end - segment_start
+	var length := offset.length()
+	var direction := offset / length if length > 0.0 else Vector3.FORWARD
+	var segment_basis := Basis(
+		cross_axis_x.normalized(),
+		cross_axis_y.normalized(),
+		direction * length
+	)
+	return Transform3D(segment_basis, segment_start.lerp(segment_end, 0.5))
 
 
 func _selection_world_line_width(world_position: Vector3) -> float:
@@ -1230,6 +1348,33 @@ func _selection_world_line_width(world_position: Vector3) -> float:
 		0.025,
 		0.09
 	)
+
+
+func _local_visual_bounds(world_object: Node3D) -> AABB:
+	var bounds := AABB(Vector3.ZERO, Vector3.ZERO)
+	var found_mesh := false
+	var to_object_local := world_object.global_transform.affine_inverse()
+	var mesh_nodes := world_object.find_children("*", "MeshInstance3D", true, false)
+	for mesh_node in mesh_nodes:
+		var mesh_instance := mesh_node as MeshInstance3D
+		if mesh_instance == null or mesh_instance.mesh == null or not mesh_instance.visible:
+			continue
+		var mesh_bounds := mesh_instance.get_aabb()
+		for x_side in 2:
+			for y_side in 2:
+				for z_side in 2:
+					var mesh_corner := mesh_bounds.position + mesh_bounds.size * Vector3(
+						float(x_side), float(y_side), float(z_side)
+					)
+					var object_corner := to_object_local * (mesh_instance.global_transform * mesh_corner)
+					if found_mesh:
+						bounds = bounds.expand(object_corner)
+					else:
+						bounds = AABB(object_corner, Vector3.ZERO)
+						found_mesh = true
+	if not found_mesh or not bounds.has_volume():
+		return AABB(Vector3(-0.5, 0.0, -0.5), Vector3.ONE)
+	return bounds
 
 
 func _world_visual_bounds(world_object: Node3D) -> AABB:
@@ -1302,11 +1447,25 @@ func _assign_navigation_task(
 ) -> bool:
 	_cancel_active_work(citizen)
 	target_position = _clamp_to_playable_world(target_position)
-	var route := _build_navigation_route(citizen.global_position, target_position, approach_solid_target)
+	var route_plan := _navigation_route_plan(
+		citizen.global_position,
+		target_position,
+		approach_solid_target
+	)
+	var route: Array[Vector3] = []
+	route.assign(route_plan.get("route", []))
 	if route.is_empty():
 		citizen.finish_task(UIText.CITIZEN_NO_ROUTE_STATUS_TEXT)
 		return false
-	citizen.assign_route(route, next_task, _road_travel_costs)
+	var assigned_task := next_task.duplicate(true)
+	var is_emergency_escape := bool(route_plan.get("emergency_escape", false))
+	assigned_task["emergency_escape"] = is_emergency_escape
+	citizen.assign_route(
+		route,
+		assigned_task,
+		_road_travel_costs,
+		CitizenNavigationPolicyScript.EMERGENCY_ESCAPE_DELAY_SECONDS if is_emergency_escape else 0.0
+	)
 	return true
 
 
@@ -1315,22 +1474,57 @@ func _build_navigation_route(
 	target_position: Vector3,
 	approach_solid_target: bool
 ) -> Array[Vector3]:
+	var plan := _navigation_route_plan(start_position, target_position, approach_solid_target)
+	var route: Array[Vector3] = []
+	route.assign(plan.get("route", []))
+	return route
+
+
+func _navigation_route_plan(
+	start_position: Vector3,
+	target_position: Vector3,
+	approach_solid_target: bool
+) -> Dictionary:
 	var loaded_component := _loaded_chunk_component(
 		WorldStreamerScript.chunk_for_world_position(start_position)
 	)
 	if not loaded_component.has(WorldStreamerScript.chunk_for_world_position(target_position)):
-		return []
+		return {"route": [], "emergency_escape": false}
 	var navigation_region := _loaded_navigation_region(loaded_component)
 	if navigation_region.size == Vector2i.ZERO:
-		return []
-	return GridNavigationScript.build_route_in_region(
+		return {"route": [], "emergency_escape": false}
+	var blocked_cells := _navigation_blocked_cells(loaded_component, navigation_region)
+	var route := GridNavigationScript.build_route_in_region(
 		start_position,
 		target_position,
-		_navigation_blocked_cells(loaded_component, navigation_region),
+		blocked_cells,
 		navigation_region,
 		approach_solid_target,
-		_road_travel_costs
+		_navigation_travel_costs()
 	)
+	var target_is_elsewhere := (
+		GridNavigationScript.world_cell(start_position)
+		!= GridNavigationScript.world_cell(target_position)
+	)
+	var route_makes_progress := (
+		not route.is_empty()
+		and Vector2(route[-1].x - start_position.x, route[-1].z - start_position.z).length_squared()
+			> 0.0025
+	)
+	if (
+		target_is_elsewhere
+		and not route_makes_progress
+		and GridNavigationScript.is_locally_enclosed(start_position, blocked_cells, navigation_region)
+	):
+		route = GridNavigationScript.build_emergency_route_in_region(
+			start_position,
+			target_position,
+			blocked_cells,
+			navigation_region,
+			approach_solid_target
+		)
+		return {"route": route, "emergency_escape": not route.is_empty()}
+	return {"route": route, "emergency_escape": false}
 
 
 func _set_road_travel_cell(world_cell: Vector2i, enabled: bool) -> void:
@@ -1341,6 +1535,17 @@ func _set_road_travel_cell(world_cell: Vector2i, enabled: bool) -> void:
 		)
 	else:
 		_road_travel_costs.erase(world_cell)
+
+
+func _navigation_travel_costs() -> Dictionary:
+	var travel_costs := _road_travel_costs.duplicate()
+	for item in _items:
+		if not is_instance_valid(item) or item.is_carried:
+			continue
+		var item_cost := CitizenNavigationPolicyScript.world_item_travel_cost(item.item_kind)
+		if item_cost > 0.0:
+			travel_costs[_world_unit_cell(item.global_position)] = item_cost
+	return travel_costs
 
 
 func _loaded_chunk_component(start_chunk: Vector2i) -> Dictionary:
@@ -1391,10 +1596,15 @@ func _navigation_blocked_cells(loaded_component: Dictionary, navigation_region: 
 	if is_instance_valid(_starting_pile):
 		for pile_cell in _starting_pile.world_footprint_cells():
 			blocked[pile_cell] = true
+	for placed_pile in _placed_piles:
+		if not is_instance_valid(placed_pile):
+			continue
+		for pile_cell in placed_pile.world_footprint_cells():
+			blocked[pile_cell] = true
 	for item in _items:
 		if not is_instance_valid(item) or item.is_carried:
 			continue
-		if item.item_kind in ["stone", "tree", "dead_tree", "palm_tree", "cactus", "bush"]:
+		if CitizenNavigationPolicyScript.world_item_blocks(item.item_kind):
 			blocked[_world_unit_cell(item.global_position)] = true
 	for terrain_coordinate_value in _terrain_blocks:
 		var terrain_coordinate: Vector3i = terrain_coordinate_value
@@ -1575,7 +1785,28 @@ func _order_collect_cactus(citizen: Citizen, cactus: WorldItem) -> void:
 
 
 func _place_support_construction_site(world_position: Vector3, keep_placing := false) -> void:
+	_place_building(world_position, "support", keep_placing)
+
+
+func _place_building(
+	world_position: Vector3,
+	building_id: String,
+	keep_placing := false
+) -> void:
+	if building_id == "pile":
+		var pile := PileStorageScript.new() as PileStorage
+		pile.configure_footprint(PileStorage.DEFAULT_FOOTPRINT)
+		add_child(pile)
+		pile.global_position = world_position
+		_placed_piles.append(pile)
+		for pile_cell in pile.world_footprint_cells():
+			_occupied_static_world_units[pile_cell] = true
+		_select_world_object(pile)
+		if not keep_placing:
+			_placing_support = false
+		return
 	var construction_site := SupportConstructionSite.new()
+	construction_site.configure(building_id)
 	add_child(construction_site)
 	construction_site.global_position = world_position
 	_construction_sites.append(construction_site)
@@ -1589,15 +1820,26 @@ func _place_support_construction_site(world_position: Vector3, keep_placing := f
 
 
 func _ensure_support_placement_preview() -> void:
-	if is_instance_valid(_support_placement_preview):
+	if (
+		is_instance_valid(_support_placement_preview)
+		and str(_support_placement_preview.get_meta("building_id", "")) == _placing_building_id
+	):
 		return
+	if is_instance_valid(_support_placement_preview):
+		_support_placement_preview.queue_free()
+	_support_preview_geometry.clear()
+	_support_preview_quadrants.clear()
 	_support_preview_allowed_material = _placement_preview_material(Palette.PLACEMENT_ALLOWED)
 	_support_preview_blocked_material = _placement_preview_material(Palette.PLACEMENT_BLOCKED)
 	_support_placement_preview = SupportConstructionSite.new()
 	_support_placement_preview.name = "SupportPlacementPreview"
+	_support_placement_preview.configure(_placing_building_id)
+	_support_placement_preview.set_meta("building_id", _placing_building_id)
 	add_child(_support_placement_preview)
-	for log_index in SupportConstructionSite.REQUIRED_LOGS:
-		_support_placement_preview.deliver_log()
+	for resource_kind_value in _support_placement_preview.construction_recipe():
+		var resource_kind := str(resource_kind_value)
+		for resource_index in int(_support_placement_preview.construction_recipe()[resource_kind]):
+			_support_placement_preview.deliver_resource(resource_kind)
 	for body_node in _support_placement_preview.find_children("*", "StaticBody3D", true, false):
 		var body := body_node as StaticBody3D
 		body.collision_layer = 0
@@ -1645,11 +1887,33 @@ func _update_support_placement_preview() -> void:
 	if hit.is_empty():
 		_support_placement_preview.visible = false
 		return
-	var preview_position := _snap_to_world_unit(hit.position)
-	var placement := _support_placement_evaluation(preview_position)
+	var preview_position := _building_placement_position(hit.position, _placing_building_id)
+	var placement := _building_placement_evaluation(preview_position, _placing_building_id)
 	_support_placement_preview.global_position = preview_position
 	_support_placement_preview.visible = true
 	_apply_support_preview_evaluation(placement)
+
+
+func _building_placement_position(world_position: Vector3, building_id: String) -> Vector3:
+	if building_id == "pile":
+		return _cell_centre(_world_unit_cell(world_position))
+	return _snap_to_world_unit(world_position)
+
+
+func _building_placement_evaluation(preview_position: Vector3, building_id: String) -> Dictionary:
+	if building_id != "pile":
+		return _support_placement_evaluation(preview_position)
+	var valid := true
+	var origin := _world_unit_cell(preview_position)
+	for local_cell in PileStorage.DEFAULT_FOOTPRINT:
+		var world_cell := origin + local_cell
+		if (
+			not _is_inside_playable_world(_cell_centre(world_cell))
+			or _excavated_cells.has(world_cell)
+			or _surface_cell_has_occupant(world_cell)
+		):
+			valid = false
+	return {"valid": valid, "invalid_quadrants": [not valid, not valid, not valid, not valid]}
 
 
 func _support_placement_evaluation(preview_position: Vector3) -> Dictionary:
@@ -1671,6 +1935,11 @@ func _support_placement_evaluation(preview_position: Vector3) -> Dictionary:
 				pile_cell,
 				invalid_quadrants
 			)
+	for placed_pile in _placed_piles:
+		if not is_instance_valid(placed_pile):
+			continue
+		for pile_cell in placed_pile.world_footprint_cells():
+			_mark_support_blocked_by_cell(preview_position, pile_cell, invalid_quadrants)
 	for item in _items:
 		if not is_instance_valid(item) or item.is_carried:
 			continue
@@ -1830,7 +2099,11 @@ func _clear_deconstruction_hover_preview() -> void:
 
 
 func _is_deconstructable_world_object(world_object: Variant) -> bool:
-	return world_object is SupportConstructionSite or world_object is ExcavationSite
+	return (
+		world_object is SupportConstructionSite
+		or world_object is ExcavationSite
+		or (world_object is PileStorage and world_object != _starting_pile)
+	)
 
 
 func _place_excavation_site(world_cell: Vector2i, keep_placing := false) -> void:
@@ -1877,14 +2150,38 @@ func _order_enter_completed_building(
 	}, false)
 
 
+func _order_process_sawmill(citizen: Citizen, sawmill: SupportConstructionSite) -> void:
+	_wake_for_direct_order(citizen)
+	citizen.clear_work_assignment()
+	if not is_instance_valid(_starting_pile) or _starting_pile.resource_count("log") <= 0:
+		citizen.finish_task(UIText.CITIZEN_SAWMILL_NEEDS_LOG_STATUS_TEXT)
+		return
+	_assign_navigation_task(
+		citizen,
+		_starting_pile.nearest_delivery_world_position(citizen.global_position),
+		{
+			"kind": ActionCatalog.FETCH_WORKSHOP_INPUT,
+			"status_text_key": UIText.CITIZEN_FETCHING_LOG_STATUS_TEXT,
+			"sawmill": sawmill,
+			"source_pile": _starting_pile,
+		},
+		true
+	)
+
+
 func _continue_build(citizen: Citizen, construction_site: SupportConstructionSite) -> void:
-	if not is_instance_valid(construction_site) or not construction_site.needs_log():
+	if not is_instance_valid(construction_site) or not construction_site.is_planned():
 		construction_site = _nearest_incomplete_construction_site(citizen.global_position)
 	if construction_site == null:
 		citizen.clear_work_assignment()
 		citizen.finish_task(UIText.CITIZEN_SUPPORT_COMPLETE_STATUS_TEXT)
 		return
-	if not is_instance_valid(_starting_pile) or not _starting_pile.has_log():
+	var resource_kind := construction_site.next_required_resource()
+	if (
+		resource_kind.is_empty()
+		or not is_instance_valid(_starting_pile)
+		or _starting_pile.resource_count(resource_kind) <= 0
+	):
 		citizen.clear_work_assignment()
 		citizen.finish_task(UIText.CITIZEN_SUPPORT_NEEDS_LOG_STATUS_TEXT)
 		return
@@ -1893,6 +2190,7 @@ func _continue_build(citizen: Citizen, construction_site: SupportConstructionSit
 		"status_text_key": UIText.CITIZEN_FETCHING_LOG_STATUS_TEXT,
 		"source_pile": _starting_pile,
 		"construction_site": construction_site,
+		"resource_kind": resource_kind,
 	}, true)
 
 
@@ -1902,7 +2200,7 @@ func _nearest_incomplete_construction_site(from_position: Vector3) -> SupportCon
 	for construction_site in _construction_sites:
 		if (
 			not is_instance_valid(construction_site)
-			or not construction_site.needs_log()
+			or not construction_site.is_planned()
 			or not construction_site.visible
 		):
 			continue
@@ -1934,6 +2232,10 @@ func _on_citizen_arrived(citizen: Citizen) -> void:
 			_resume_construction_work(citizen, task)
 		ActionCatalog.DELIVER_FOOD:
 			_handle_deliver_food_arrival(citizen, task)
+		ActionCatalog.FETCH_WORKSHOP_INPUT:
+			_handle_fetch_workshop_input_arrival(citizen, task)
+		ActionCatalog.SAW_PLANK:
+			_handle_sawmill_arrival(citizen, task)
 
 
 func _handle_chop_arrival(citizen: Citizen, task: Dictionary) -> void:
@@ -1983,22 +2285,27 @@ func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 	if is_instance_valid(source_pile):
 		var pile := source_pile as PileStorage
 		var pile_construction_site: Variant = task.get("construction_site")
+		var resource_kind := str(task.get("resource_kind", "log"))
 		var contributor_id := citizen.get_instance_id()
 		var reservation_slot := -1
 		if is_instance_valid(pile_construction_site):
-			reservation_slot = (pile_construction_site as SupportConstructionSite).reserve_log(contributor_id)
-		if reservation_slot < 0 or not pile.take_log():
+			reservation_slot = (pile_construction_site as SupportConstructionSite).reserve_resource(
+				contributor_id,
+				resource_kind
+			)
+		if reservation_slot < 0 or not pile.take_resource(resource_kind, 1):
 			if is_instance_valid(pile_construction_site):
 				(pile_construction_site as SupportConstructionSite).release_log_reservation(contributor_id)
 			citizen.clear_work_assignment()
 			citizen.finish_task(UIText.CITIZEN_SUPPORT_NEEDS_LOG_STATUS_TEXT)
 			return
-		citizen.set_carrying_log(true)
+		citizen.set_carrying_resource(resource_kind, true)
 		_assign_navigation_task(citizen, (pile_construction_site as SupportConstructionSite).global_position, {
 			"kind": ActionCatalog.DELIVER_LOG,
 			"status_text_key": UIText.CITIZEN_CARRYING_LOG_STATUS_TEXT,
 			"construction_site": pile_construction_site,
 			"stored_log": true,
+			"resource_kind": resource_kind,
 			"reservation_slot": reservation_slot,
 		}, true)
 		return
@@ -2073,6 +2380,7 @@ func _start_construction_work(
 ) -> void:
 	var contributor_id := citizen.get_instance_id()
 	var reservation_slot := int(material_task.get("reservation_slot", -1))
+	var resource_kind := str(material_task.get("resource_kind", "log"))
 	if not construction_site.has_log_reservation(contributor_id) or reservation_slot < 0:
 		_return_unapplied_building_block(citizen, material_task)
 		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
@@ -2082,6 +2390,7 @@ func _start_construction_work(
 		"construction_site": construction_site,
 		"log": material_task.get("log"),
 		"stored_log": bool(material_task.get("stored_log", false)),
+		"resource_kind": resource_kind,
 		"reservation_slot": reservation_slot,
 	}
 	_begin_labour(
@@ -2089,12 +2398,16 @@ func _start_construction_work(
 		construction_site,
 		ActionCatalog.APPLY_BUILDING_BLOCK,
 		UIText.CITIZEN_BUILDING_STATUS_TEXT,
-		CONSTRUCTION_WORK_SECONDS,
+		float(construction_site.labour_seconds_by_resource().get(
+			resource_kind,
+			CONSTRUCTION_WORK_SECONDS
+		)),
 		reservation_slot
 	)
 	var active_work: Dictionary = _active_work.get(citizen, {})
 	active_work["log"] = citizen.task.get("log")
 	active_work["stored_log"] = bool(citizen.task.get("stored_log", false))
+	active_work["resource_kind"] = resource_kind
 	active_work["construction_site"] = construction_site
 	_active_work[citizen] = active_work
 
@@ -2118,6 +2431,49 @@ func _handle_deliver_food_arrival(citizen: Citizen, task: Dictionary) -> void:
 		_continue_persistent_assignment(citizen)
 		return
 	citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+
+
+func _handle_fetch_workshop_input_arrival(citizen: Citizen, task: Dictionary) -> void:
+	var source_pile := task.get("source_pile") as PileStorage
+	var sawmill := task.get("sawmill") as SupportConstructionSite
+	if (
+		not is_instance_valid(source_pile)
+		or not is_instance_valid(sawmill)
+		or not sawmill.is_complete()
+		or not source_pile.take_resource("log", 1)
+	):
+		citizen.finish_task(UIText.CITIZEN_SAWMILL_NEEDS_LOG_STATUS_TEXT)
+		return
+	citizen.set_carrying_resource("log", true)
+	_assign_navigation_task(citizen, sawmill.global_position, {
+		"kind": ActionCatalog.SAW_PLANK,
+		"status_text_key": UIText.CITIZEN_WALKING_STATUS_TEXT,
+		"sawmill": sawmill,
+		"source_pile": source_pile,
+		"resource_kind": "log",
+	}, true)
+
+
+func _handle_sawmill_arrival(citizen: Citizen, task: Dictionary) -> void:
+	var sawmill := task.get("sawmill") as SupportConstructionSite
+	if not is_instance_valid(sawmill) or not sawmill.is_complete():
+		_return_sawmill_input(citizen, task)
+		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
+		return
+	citizen.task = task.duplicate(true)
+	_begin_labour(
+		citizen,
+		sawmill,
+		ActionCatalog.SAW_PLANK,
+		UIText.CITIZEN_SAWING_PLANK_STATUS_TEXT,
+		3.0,
+		citizen.get_instance_id()
+	)
+	var active_work: Dictionary = _active_work.get(citizen, {})
+	active_work["source_pile"] = task.get("source_pile")
+	active_work["sawmill"] = sawmill
+	active_work["resource_kind"] = "log"
+	_active_work[citizen] = active_work
 
 
 func _start_tree_cut_work(citizen: Citizen, tree: WorldItem) -> void:
@@ -2186,7 +2542,11 @@ func _begin_labour(
 
 
 func _labour_key(target: Node3D, work_kind: String, work_slot := -1) -> String:
-	if work_slot >= 0 and work_kind in [ActionCatalog.CHOP_TREE, ActionCatalog.APPLY_BUILDING_BLOCK]:
+	if work_slot >= 0 and work_kind in [
+		ActionCatalog.CHOP_TREE,
+		ActionCatalog.APPLY_BUILDING_BLOCK,
+		ActionCatalog.SAW_PLANK,
+	]:
 		return "%d:%s:%d" % [target.get_instance_id(), work_kind, work_slot]
 	return "%d:%s" % [target.get_instance_id(), work_kind]
 
@@ -2325,6 +2685,8 @@ func _complete_labour_job(labour_key: String, completing_citizen: Citizen) -> vo
 			_complete_bush_harvest_work(completing_citizen, target as WorldItem)
 		ActionCatalog.COLLECT_CACTUS:
 			_complete_cactus_collection_work(completing_citizen, target as WorldItem)
+		ActionCatalog.SAW_PLANK:
+			_complete_sawmill_work(completing_citizen, target as SupportConstructionSite)
 		_:
 			_complete_tree_cut_work(completing_citizen, target as WorldItem)
 
@@ -2337,7 +2699,7 @@ func _complete_construction_work(
 		return
 	var material_task := citizen.task.duplicate()
 	var contributor_id := citizen.get_instance_id()
-	if not construction_site.apply_reserved_log(contributor_id):
+	if not construction_site.apply_reserved_resource(contributor_id):
 		_return_unapplied_building_block(citizen, material_task)
 		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
 		return
@@ -2349,7 +2711,8 @@ func _complete_construction_work(
 
 
 func _consume_applied_building_block(citizen: Citizen, material_task: Dictionary) -> void:
-	citizen.set_carrying_log(false)
+	var resource_kind := str(material_task.get("resource_kind", "log"))
+	citizen.set_carrying_resource(resource_kind, false)
 	var carried_log := material_task.get("log") as WorldItem
 	if is_instance_valid(carried_log):
 		_items.erase(carried_log)
@@ -2362,15 +2725,34 @@ func _return_unapplied_building_block(citizen: Citizen, material_task: Dictionar
 	var construction_site := material_task.get("construction_site") as SupportConstructionSite
 	if is_instance_valid(construction_site):
 		construction_site.release_log_reservation(citizen.get_instance_id())
-	citizen.set_carrying_log(false)
+	var resource_kind := str(material_task.get("resource_kind", "log"))
+	citizen.set_carrying_resource(resource_kind, false)
 	if bool(material_task.get("stored_log", false)):
 		if is_instance_valid(_starting_pile):
-			if not _starting_pile.store_log():
+			if not _starting_pile.store_resource(resource_kind, 1) and resource_kind == "log":
 				_spawn_item("log", citizen.global_position)
 		return
 	var carried_log := material_task.get("log") as WorldItem
 	if is_instance_valid(carried_log):
 		carried_log.release_from_carry(citizen.global_position)
+
+
+func _complete_sawmill_work(citizen: Citizen, sawmill: SupportConstructionSite) -> void:
+	if not is_instance_valid(citizen) or not is_instance_valid(sawmill):
+		return
+	citizen.set_carrying_resource("log", false)
+	if is_instance_valid(_starting_pile):
+		_starting_pile.store_resource("plank", 1)
+	citizen.finish_task(UIText.CITIZEN_PLANK_COMPLETE_STATUS_TEXT)
+
+
+func _return_sawmill_input(citizen: Citizen, material_task: Dictionary) -> void:
+	if not is_instance_valid(citizen):
+		return
+	citizen.set_carrying_resource("log", false)
+	var source_pile := material_task.get("source_pile") as PileStorage
+	if is_instance_valid(source_pile):
+		source_pile.store_resource("log", 1)
 
 
 func _complete_bush_harvest_work(citizen: Citizen, bush: WorldItem) -> void:
@@ -2554,6 +2936,9 @@ func _cancel_active_work(citizen: Citizen, preserve_carried_material := false) -
 		and not preserve_carried_material
 	):
 		_return_unapplied_building_block(citizen, work)
+		_remove_labour_record(labour_key)
+	elif str(work.get("kind", "")) == ActionCatalog.SAW_PLANK and not preserve_carried_material:
+		_return_sawmill_input(citizen, work)
 		_remove_labour_record(labour_key)
 	_active_work.erase(citizen)
 	if is_instance_valid(citizen):
@@ -4077,7 +4462,7 @@ func _update_selected_construction_inspector() -> void:
 		if labour != null:
 			applied_seconds += labour.applied_seconds
 	_construction_inspector.present(
-		UIText.text(UIText.SUPPORT_NAME_TEXT),
+		_selected_building.display_name(),
 		total_seconds,
 		clampf(applied_seconds, 0.0, total_seconds),
 		recipe,
@@ -4626,7 +5011,8 @@ func _refresh_build_catalog() -> void:
 		entry_button.name = "%sButton" % entry_id.to_pascal_case()
 		if entry_id == "support":
 			entry_button.name = "PlaceSupportButton"
-			entry_button.pressed.connect(_enter_build_mode.bind(true))
+		if implemented:
+			entry_button.pressed.connect(_enter_building_placement.bind(entry_id))
 		_build_catalog_row.add_child(entry_button)
 
 	_remove_building_button = _create_toolbar_button(

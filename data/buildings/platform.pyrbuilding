@@ -1,0 +1,18 @@
+{
+	"format": "pyramida-building",
+	"format_version": 2,
+	"id": "platform",
+	"display_name": "Platform",
+	"bounds_world_units": [1, 1, 1],
+	"recipe_mode": "derived",
+	"parts": [
+		{"id":"post_sw","kind":"log","material":"wood","resource":"log","sub_unit":[0,0,0],"orientation":"y","visual_variant":0,"geometry":{"primitive":"log","start":[-0.36,0.02,-0.36],"end":[-0.36,0.88,-0.36],"start_radius":0.13,"end_radius":0.09,"sides":6}},
+		{"id":"post_se","kind":"log","material":"wood","resource":"log","sub_unit":[1,0,0],"orientation":"y","visual_variant":1,"geometry":{"primitive":"log","start":[0.36,0.02,-0.36],"end":[0.36,0.88,-0.36],"start_radius":0.13,"end_radius":0.09,"sides":6}},
+		{"id":"post_nw","kind":"log","material":"wood","resource":"log","sub_unit":[0,0,1],"orientation":"y","visual_variant":2,"geometry":{"primitive":"log","start":[-0.36,0.02,0.36],"end":[-0.36,0.88,0.36],"start_radius":0.13,"end_radius":0.09,"sides":6}},
+		{"id":"post_ne","kind":"log","material":"wood","resource":"log","sub_unit":[1,0,1],"orientation":"y","visual_variant":0,"geometry":{"primitive":"log","start":[0.36,0.02,0.36],"end":[0.36,0.88,0.36],"start_radius":0.13,"end_radius":0.09,"sides":6}},
+		{"id":"deck_1","kind":"plank","material":"wood","resource":"plank","sub_unit":[0,1,0],"orientation":"x","visual_variant":0,"geometry":{"primitive":"box","centre":[0.0,0.94,-0.33],"size":[0.92,0.10,0.18],"rotation_degrees":[0.0,0.0,0.0]}},
+		{"id":"deck_2","kind":"plank","material":"wood","resource":"plank","sub_unit":[1,1,0],"orientation":"x","visual_variant":1,"geometry":{"primitive":"box","centre":[0.0,0.94,-0.11],"size":[0.92,0.10,0.18],"rotation_degrees":[0.0,0.0,0.0]}},
+		{"id":"deck_3","kind":"plank","material":"wood","resource":"plank","sub_unit":[0,1,1],"orientation":"x","visual_variant":2,"geometry":{"primitive":"box","centre":[0.0,0.94,0.11],"size":[0.92,0.10,0.18],"rotation_degrees":[0.0,0.0,0.0]}},
+		{"id":"deck_4","kind":"plank","material":"wood","resource":"plank","sub_unit":[1,1,1],"orientation":"x","visual_variant":0,"geometry":{"primitive":"box","centre":[0.0,0.94,0.33],"size":[0.92,0.10,0.18],"rotation_degrees":[0.0,0.0,0.0]}}
+	]
+}

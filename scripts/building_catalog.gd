@@ -28,6 +28,29 @@ const ENTRIES := {
 			"icon": "support_preview",
 			"footprint": Vector3i(1, 1, 1),
 			"recipe": {"log": 4},
+			"asset_path": "res://data/buildings/four_log_support.pyrbuilding",
+			"implemented": true,
+		},
+		{
+			"id": "platform",
+			"label_key": "platform_name_text",
+			"icon": "platform",
+			"footprint": Vector3i(1, 1, 1),
+			"recipe": {"log": 4, "plank": 4},
+			"asset_path": "res://data/buildings/platform.pyrbuilding",
+			"implemented": true,
+		},
+		{
+			"id": "sawmill",
+			"label_key": "sawmill_name_text",
+			"icon": "sawmill",
+			"footprint": Vector3i(1, 1, 1),
+			"recipe": {"log": 10},
+			"asset_path": "res://data/buildings/sawmill.pyrbuilding",
+			"workshop_recipes": [
+				{"id": "saw_plank", "input": {"log": 1}, "output": {"plank": 1}, "work_seconds": 3.0},
+			],
+			"entry_points": 4,
 			"implemented": true,
 		},
 	],
@@ -78,8 +101,9 @@ const ENTRIES := {
 			"icon": "pile_building",
 			"footprint": Vector3i(2, 1, 2),
 			"recipe": {},
+			"asset_path": "res://data/buildings/pile.pyrbuilding",
 			"resizable_connected_footprint": true,
-			"implemented": false,
+			"implemented": true,
 		},
 		{
 			"id": "warehouse",
@@ -88,6 +112,7 @@ const ENTRIES := {
 			"footprint": Vector3i(1, 1, 1),
 			"recipe": {"log": 4, "plank": 4},
 			"door_count": 1,
+			"citizen_navigation": {"door": "passable", "walls": "hard_block"},
 			"merge_on_facing_door": true,
 			"implemented": false,
 		},
@@ -123,3 +148,9 @@ static func entry(building_id: String) -> Dictionary:
 			if str(definition.get("id", "")) == building_id:
 				return definition
 	return {}
+
+
+static func citizen_face_blocks(building_id: String, face_kind: String) -> bool:
+	var definition := entry(building_id)
+	var navigation := definition.get("citizen_navigation", {}) as Dictionary
+	return str(navigation.get(face_kind, "hard_block")) == "hard_block"

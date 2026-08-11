@@ -3,6 +3,7 @@ extends Node3D
 
 const TERRAIN_BLOCK_SHADER := preload("res://shaders/limestone.gdshader")
 const Palette = preload("res://scripts/game_palette.gd")
+const CitizenNavigationPolicyScript = preload("res://scripts/citizen_navigation_policy.gd")
 
 var block_coordinate := Vector3i.ZERO
 var _terrain_material: ShaderMaterial
@@ -40,6 +41,10 @@ func _ready() -> void:
 
 	var body := StaticBody3D.new()
 	body.name = "TerrainBlockCollision"
+	body.collision_layer = (
+		CitizenNavigationPolicyScript.INTERACTION_COLLISION_LAYER
+		| CitizenNavigationPolicyScript.CITIZEN_BLOCKER_COLLISION_LAYER
+	)
 	body.set_meta("world_object", self)
 	var collision := CollisionShape3D.new()
 	var shape := BoxShape3D.new()

@@ -2,9 +2,9 @@ class_name BuildInfo
 extends RefCounted
 
 ## Bump VERSION and refresh the commit/timestamp for every applied chat batch.
-const VERSION := "0.0.52"
-const GIT_COMMIT := "2c82ac7"
-const APPLIED_AT_GMT_PLUS_3 := "2026-08-11 17:31 GMT+3"
+const VERSION := "0.0.53"
+const GIT_COMMIT := "aca2517"
+const APPLIED_AT_GMT_PLUS_3 := "2026-08-11 18:07 GMT+3"
 
 
 static func inline_label() -> String:

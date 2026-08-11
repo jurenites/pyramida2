@@ -36,10 +36,29 @@ func _initialize() -> void:
 	var pile := Catalog.entry("pile")
 	_check(pile.get("footprint") == Vector3i(2, 1, 2), "Pile surface footprint is not 2x2")
 	_check((pile.get("recipe", {}) as Dictionary).is_empty(), "Pile is not free")
+	_check(bool(pile.get("implemented", false)), "Free Pile is not buildable")
+	var platform := Catalog.entry("platform")
+	_check(platform.get("recipe") == {"log": 4, "plank": 4}, "Platform recipe changed")
+	var sawmill := Catalog.entry("sawmill")
+	_check(sawmill.get("recipe") == {"log": 10}, "Sawmill is not ten Logs")
+	_check(int(sawmill.get("entry_points", 0)) == 4, "Sawmill does not expose four entry points")
+	var sawmill_recipes := sawmill.get("workshop_recipes", []) as Array
+	_check(
+		not sawmill_recipes.is_empty()
+		and sawmill_recipes[0].get("input") == {"log": 1}
+		and sawmill_recipes[0].get("output") == {"plank": 1}
+		and is_equal_approx(float(sawmill_recipes[0].get("work_seconds", 0.0)), 3.0),
+		"Sawmill does not convert one Log to one Plank in three seconds"
+	)
 	var warehouse := Catalog.entry("warehouse")
 	_check(warehouse.get("footprint") == Vector3i.ONE, "Warehouse is not 1x1x1")
 	_check(warehouse.get("recipe") == {"log": 4, "plank": 4}, "Warehouse recipe changed")
 	_check(bool(warehouse.get("merge_on_facing_door", false)), "Warehouse units cannot merge through facing Doors")
+	var warehouse_navigation := warehouse.get("citizen_navigation", {}) as Dictionary
+	_check(warehouse_navigation.get("door") == "passable", "Warehouse Door is not passable")
+	_check(warehouse_navigation.get("walls") == "hard_block", "Warehouse walls are not hard blockers")
+	_check(not Catalog.citizen_face_blocks("warehouse", "door"), "Warehouse Door blocks a Citizen")
+	_check(Catalog.citizen_face_blocks("warehouse", "walls"), "Warehouse wall lets a Citizen through")
 
 	var small_home := Catalog.entry("small_livable")
 	_check(small_home.get("footprint") == Vector3i.ONE, "Small home is not 1x1x1")

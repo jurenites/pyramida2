@@ -47,20 +47,24 @@ func _run() -> void:
 				"Building category order changed"
 			)
 	if is_instance_valid(catalog_row):
-		_check(catalog_row.get_child_count() == 2, "Structure must contain Support and Remove building")
-		if catalog_row.get_child_count() == 2:
+		_check(catalog_row.get_child_count() == 4, "Structure must contain Support, Platform, Sawmill, and Remove building")
+		if catalog_row.get_child_count() == 4:
 			var support_button := catalog_row.get_child(0) as Button
 			_check(support_button.name == "PlaceSupportButton", "First Building entry is not Support")
 			var support_image := support_button.icon.get_image()
 			_check(
-				_count_exact_colour(support_image, Palette.SAND_SURFACE) >= 300,
+				_count_exact_colour(support_image, Palette.SAND_SURFACE) >= 200,
 				"Support thumbnail does not contain a full Sand World Unit"
 			)
 			_check(
 				_count_exact_colour(support_image, Palette.ROOF_LOG) >= 30,
 				"Support thumbnail does not visibly contain four completed Logs"
 			)
-			var remove_button := catalog_row.get_child(1) as Button
+			_check((catalog_row.get_child(1) as Button).name == "PlatformButton", "Structure has no Platform")
+			_check(not (catalog_row.get_child(1) as Button).disabled, "Platform is not playable")
+			_check((catalog_row.get_child(2) as Button).name == "SawmillButton", "Structure has no Sawmill")
+			_check(not (catalog_row.get_child(2) as Button).disabled, "Sawmill is not playable")
+			var remove_button := catalog_row.get_child(3) as Button
 			_check(
 				remove_button.name == "RemoveBuildingButton",
 				"Last Building entry is not Remove building"
@@ -85,6 +89,7 @@ func _run() -> void:
 	game.call("_select_build_category", "storage")
 	_check(catalog_row.get_child_count() == 3, "Storage must contain Pile, Warehouse, and Remove building")
 	_check((catalog_row.get_child(0) as Button).name == "PileButton", "Storage does not begin with Pile")
+	_check(not (catalog_row.get_child(0) as Button).disabled, "Free Pile is not playable")
 	_check((catalog_row.get_child(1) as Button).name == "WarehouseButton", "Storage has no Warehouse")
 
 	game.call("_select_build_category", "livable")

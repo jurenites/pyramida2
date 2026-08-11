@@ -4,15 +4,21 @@ extends RefCounted
 const MaterialCatalog = preload("res://scripts/building_material_catalog.gd")
 
 const FORMAT_ID := "pyramida-building"
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 2
+const SUPPORTED_FORMAT_VERSIONS: Array[int] = [1, 2]
 const FILE_EXTENSION := "pyrbuilding"
 const SUPPORTED_PART_KINDS: Array[String] = ["block", "log", "plank"]
 const SUPPORTED_ORIENTATIONS: Array[String] = ["x", "y", "z"]
+const SUPPORTED_PRIMITIVES: Array[String] = ["box", "log", "sphere"]
 
 var blueprint_id := "developer_world_unit"
 var display_name := "Developer World Unit"
+var source_format_version := FORMAT_VERSION
 var bounds_world_units := Vector3i.ONE
 var parts: Array[Dictionary] = []
+var recipe_mode := "derived"
+var explicit_recipe: Dictionary = {}
+var workshop_recipes: Array[Dictionary] = []
 var last_error := ""
 
 
@@ -30,13 +36,17 @@ func duplicate_blueprint() -> BuildingBlueprint:
 	var duplicate_value := BuildingBlueprint.new()
 	duplicate_value.blueprint_id = blueprint_id
 	duplicate_value.display_name = display_name
+	duplicate_value.source_format_version = source_format_version
 	duplicate_value.bounds_world_units = bounds_world_units
 	duplicate_value.parts = parts.duplicate(true)
+	duplicate_value.recipe_mode = recipe_mode
+	duplicate_value.explicit_recipe = explicit_recipe.duplicate(true)
+	duplicate_value.workshop_recipes = workshop_recipes.duplicate(true)
 	return duplicate_value
 
 
 func to_dictionary() -> Dictionary:
-	return {
+	var result := {
 		"format": FORMAT_ID,
 		"format_version": FORMAT_VERSION,
 		"id": blueprint_id,
@@ -44,6 +54,12 @@ func to_dictionary() -> Dictionary:
 		"bounds_world_units": _vector3i_to_array(bounds_world_units),
 		"parts": parts.duplicate(true),
 	}
+	result["recipe_mode"] = recipe_mode
+	if recipe_mode == "explicit":
+		result["recipe"] = explicit_recipe.duplicate(true)
+	if not workshop_recipes.is_empty():
+		result["workshop_recipes"] = workshop_recipes.duplicate(true)
+	return result
 
 
 func to_text() -> String:
@@ -57,9 +73,16 @@ func load_dictionary(source: Dictionary) -> bool:
 	blueprint_id = _safe_identifier(str(source.get("id", "building")))
 	display_name = str(source.get("display_name", blueprint_id)).strip_edges()
 	bounds_world_units = _array_to_vector3i(source.get("bounds_world_units", [1, 1, 1]))
+	var source_version := int(source.get("format_version", 1))
+	source_format_version = source_version
+	recipe_mode = str(source.get("recipe_mode", "derived")) if source_version >= 2 else "derived"
+	explicit_recipe = _canonical_resource_counts(source.get("recipe", {}))
+	workshop_recipes.clear()
+	for workshop_recipe_value in source.get("workshop_recipes", []):
+		workshop_recipes.append(_canonical_workshop_recipe(workshop_recipe_value as Dictionary))
 	parts.clear()
 	for source_part in source.get("parts", []):
-		parts.append((source_part as Dictionary).duplicate(true))
+		parts.append(_canonical_part(source_part as Dictionary))
 	return true
 
 
@@ -128,8 +151,12 @@ func clear_parts() -> void:
 
 
 func recipe() -> Dictionary:
+	if recipe_mode == "explicit":
+		return explicit_recipe.duplicate(true)
 	var required_resources := {}
 	for blueprint_part in parts:
+		if bool(blueprint_part.get("decorative", false)):
+			continue
 		var resource_id := MaterialCatalog.resource_for_part(
 			str(blueprint_part.get("kind", "")),
 			str(blueprint_part.get("material", ""))
@@ -186,6 +213,7 @@ static func make_sub_unit_part(
 		"sub_unit": _vector3i_to_array(sub_unit),
 		"orientation": orientation,
 		"visual_variant": posmod(visual_variant, 3),
+		"decorative": false,
 		"geometry": geometry,
 	}
 
@@ -199,13 +227,16 @@ static func vector3_from_value(value: Variant, fallback := Vector3.ZERO) -> Vect
 static func _validate_dictionary(source: Dictionary) -> String:
 	if str(source.get("format", "")) != FORMAT_ID:
 		return "Unsupported blueprint format"
-	if int(source.get("format_version", 0)) != FORMAT_VERSION:
+	var source_version := int(source.get("format_version", 0))
+	if source_version not in SUPPORTED_FORMAT_VERSIONS:
 		return "Unsupported blueprint format version"
 	var source_id := str(source.get("id", "")).strip_edges()
 	if source_id.is_empty() or source_id != _safe_identifier(source_id):
 		return "Blueprint ID must use lowercase letters numbers underscores or hyphens"
 	var source_bounds := _array_to_vector3i(source.get("bounds_world_units", []))
-	if source_bounds != Vector3i.ONE:
+	if source_bounds.x <= 0 or source_bounds.y <= 0 or source_bounds.z <= 0:
+		return "Blueprint bounds must contain positive World Unit dimensions"
+	if source_version == 1 and source_bounds != Vector3i.ONE:
 		return "Version 1 supports exactly one World Unit"
 	var source_parts: Variant = source.get("parts", [])
 	if not source_parts is Array:
@@ -226,9 +257,6 @@ static func _validate_dictionary(source: Dictionary) -> String:
 		var material_id := str(blueprint_part.get("material", ""))
 		if not MaterialCatalog.MATERIAL_IDS.has(material_id):
 			return "Unsupported building material: %s" % material_id
-		var expected_resource := MaterialCatalog.resource_for_part(part_kind, material_id)
-		if str(blueprint_part.get("resource", "")) != expected_resource:
-			return "Part resource does not match its kind and material"
 		var orientation := str(blueprint_part.get("orientation", ""))
 		if not SUPPORTED_ORIENTATIONS.has(orientation):
 			return "Unsupported part orientation: %s" % orientation
@@ -236,15 +264,82 @@ static func _validate_dictionary(source: Dictionary) -> String:
 		if visual_variant < 0 or visual_variant > 2:
 			return "Visual variant must be 0 1 or 2"
 		var sub_unit := _array_to_vector3i(blueprint_part.get("sub_unit", []))
-		if not _is_valid_sub_unit(sub_unit):
+		if not _is_valid_sub_unit(sub_unit, source_bounds):
 			return "Part lies outside the editable World Unit"
 		var sub_unit_key := "%d,%d,%d" % [sub_unit.x, sub_unit.y, sub_unit.z]
-		if used_sub_units.has(sub_unit_key):
+		if source_version == 1 and used_sub_units.has(sub_unit_key):
 			return "Version 1 permits one editable part per Sub-Unit"
 		used_sub_units[sub_unit_key] = true
-		if not blueprint_part.get("geometry", {}) is Dictionary:
+		var decorative := bool(blueprint_part.get("decorative", false))
+		var expected_resource := MaterialCatalog.resource_for_part(part_kind, material_id)
+		if decorative:
+			if not str(blueprint_part.get("resource", "")).is_empty():
+				return "Decorative parts cannot consume a construction resource"
+		elif str(blueprint_part.get("resource", "")) != expected_resource:
+			return "Part resource does not match its kind and material"
+		var geometry_value: Variant = blueprint_part.get("geometry", {})
+		if not geometry_value is Dictionary:
 			return "Blueprint part geometry must be an object"
+		var geometry := geometry_value as Dictionary
+		var default_primitive := "log" if part_kind == "log" else "box"
+		if str(geometry.get("primitive", default_primitive)) not in SUPPORTED_PRIMITIVES:
+			return "Unsupported geometry primitive"
+	if source_version >= 2:
+		var source_recipe_mode := str(source.get("recipe_mode", "derived"))
+		if source_recipe_mode not in ["derived", "explicit"]:
+			return "Recipe mode must be derived or explicit"
+		if source_recipe_mode == "explicit" and not source.get("recipe", {}) is Dictionary:
+			return "Explicit recipe must be an object"
+		var workshop_value: Variant = source.get("workshop_recipes", [])
+		if not workshop_value is Array:
+			return "Workshop recipes must be an array"
+		for workshop_recipe_value in workshop_value:
+			if not workshop_recipe_value is Dictionary:
+				return "Every workshop recipe must be an object"
+			var workshop_recipe := workshop_recipe_value as Dictionary
+			if (
+				not workshop_recipe.get("input", {}) is Dictionary
+				or not workshop_recipe.get("output", {}) is Dictionary
+				or float(workshop_recipe.get("work_seconds", 0.0)) <= 0.0
+			):
+				return "Workshop recipes require input output and positive work_seconds"
 	return ""
+
+
+static func _canonical_part(source_part: Dictionary) -> Dictionary:
+	var result := source_part.duplicate(true)
+	result["sub_unit"] = _vector3i_to_array(_array_to_vector3i(source_part.get("sub_unit", [])))
+	result["visual_variant"] = int(source_part.get("visual_variant", 0))
+	result["decorative"] = bool(source_part.get("decorative", false))
+	var geometry: Dictionary = (source_part.get("geometry", {}) as Dictionary).duplicate(true)
+	for vector_key in ["start", "end", "centre", "size", "rotation_degrees", "scale"]:
+		if geometry.get(vector_key) is Array and geometry[vector_key].size() == 3:
+			geometry[vector_key] = _vector3_to_array(vector3_from_value(geometry[vector_key]))
+	for float_key in ["start_radius", "end_radius", "radius", "height"]:
+		if geometry.has(float_key):
+			geometry[float_key] = float(geometry[float_key])
+	if geometry.has("sides"):
+		geometry["sides"] = int(geometry["sides"])
+	result["geometry"] = geometry
+	return result
+
+
+static func _canonical_resource_counts(value: Variant) -> Dictionary:
+	var result := {}
+	if not value is Dictionary:
+		return result
+	for resource_kind_value in value:
+		result[str(resource_kind_value)] = int(value[resource_kind_value])
+	return result
+
+
+static func _canonical_workshop_recipe(source: Dictionary) -> Dictionary:
+	return {
+		"id": str(source.get("id", "process")),
+		"input": _canonical_resource_counts(source.get("input", {})),
+		"output": _canonical_resource_counts(source.get("output", {})),
+		"work_seconds": float(source.get("work_seconds", 0.0)),
+	}
 
 
 static func _orientation_axis(orientation: String) -> Vector3:
@@ -257,11 +352,11 @@ static func _orientation_axis(orientation: String) -> Vector3:
 			return Vector3.RIGHT
 
 
-static func _is_valid_sub_unit(sub_unit: Vector3i) -> bool:
+static func _is_valid_sub_unit(sub_unit: Vector3i, bounds := Vector3i.ONE) -> bool:
 	return (
-		sub_unit.x in [0, 1]
-		and sub_unit.y in [0, 1]
-		and sub_unit.z in [0, 1]
+		sub_unit.x >= 0 and sub_unit.x < bounds.x * 2
+		and sub_unit.y >= 0 and sub_unit.y < bounds.y * 2
+		and sub_unit.z >= 0 and sub_unit.z < bounds.z * 2
 	)
 
 

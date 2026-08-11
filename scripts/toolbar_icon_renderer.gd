@@ -61,6 +61,8 @@ static func create_icon(icon_kind: String) -> ImageTexture:
 		"suspension_bridge", "suspension_bridge_hover",
 		"tunnel", "tunnel_hover",
 		"pile_building", "pile_building_hover",
+		"platform", "platform_hover",
+		"sawmill", "sawmill_hover",
 		"warehouse", "warehouse_hover",
 		"small_livable", "small_livable_hover",
 	]:
@@ -276,6 +278,17 @@ static func _draw_catalog_building_icon(target_image: Image, building_kind: Stri
 		"pile_building":
 			for stone_position in [Vector2(9, 30), Vector2(31, 30), Vector2(9, 11), Vector2(31, 11)]:
 				_draw_circle(target_image, stone_position, 2.8, Palette.LIMESTONE_SIDE)
+		"platform":
+			for post_x in [10.0, 30.0]:
+				_draw_line(target_image, Vector2(post_x, 31), Vector2(post_x, 13), 2.2, Palette.ROOF_LOG)
+			for plank_y in [10.0, 13.0, 16.0, 19.0]:
+				_draw_line(target_image, Vector2(7, plank_y), Vector2(33, plank_y), 2.0, Palette.WOODEN_ROOF)
+		"sawmill":
+			for post_x in [10.0, 30.0]:
+				_draw_line(target_image, Vector2(post_x, 33), Vector2(post_x, 17), 2.2, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(8, 17), Vector2(20, 8), 2.4, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(20, 8), Vector2(32, 17), 2.4, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(10, 17), Vector2(30, 17), 2.0, Palette.ROOF_LOG)
 		"warehouse":
 			_draw_line(target_image, Vector2(9, 14), Vector2(31, 14), 3.0, Palette.WOODEN_ROOF)
 			for post_x in [11.0, 29.0]:

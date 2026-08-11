@@ -56,7 +56,10 @@ func _run() -> void:
 			"Support planned component is not the required 50%-opaque gray"
 		)
 	var planned_bounds: AABB = game.call("_world_visual_bounds", construction_site)
-	_check(planned_bounds.end.y > 1.2, "Selection bounds do not include the future Support height")
+	_check(
+		planned_bounds.end.y > 0.95 and planned_bounds.end.y <= 1.05,
+		"Support asset does not remain synchronized to one standard World Unit"
+	)
 	var selection_outline := game.get("_selection_outline_root") as MultiMeshInstance3D
 	game.call("_update_world_selection_outline")
 	_check(selection_outline.visible, "Selected Construction Site has no white outline")

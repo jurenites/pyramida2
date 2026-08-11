@@ -118,6 +118,57 @@ static func build_direct_route(route_start: Vector3, route_end: Vector3) -> Arra
 	return result
 
 
+static func is_locally_enclosed(
+	start_position: Vector3,
+	blocked_cells: Dictionary,
+	region: Rect2i
+) -> bool:
+	var start_cell := world_cell(start_position)
+	if not region.has_point(start_cell):
+		return false
+	for offset in NEIGHBOUR_OFFSETS:
+		var neighbour := start_cell + offset
+		if not region.has_point(neighbour) or blocked_cells.has(neighbour):
+			continue
+		if offset.x != 0 and offset.y != 0:
+			if (
+				blocked_cells.has(start_cell + Vector2i(offset.x, 0))
+				or blocked_cells.has(start_cell + Vector2i(0, offset.y))
+			):
+				continue
+		return false
+	return true
+
+
+static func build_emergency_route_in_region(
+	start_position: Vector3,
+	target_position: Vector3,
+	blocked_cells: Dictionary,
+	region: Rect2i,
+	approach_solid_target: bool
+) -> Array[Vector3]:
+	var start_cell := world_cell(start_position)
+	var target_cell := world_cell(target_position)
+	if not region.has_point(start_cell) or not region.has_point(target_cell):
+		return []
+	var emergency_target := target_position
+	if approach_solid_target:
+		var candidate_found := false
+		var best_distance := INF
+		for offset in NEIGHBOUR_OFFSETS:
+			var candidate := target_cell + offset
+			if not region.has_point(candidate) or blocked_cells.has(candidate):
+				continue
+			var candidate_distance := Vector2(candidate - start_cell).length_squared()
+			if candidate_distance < best_distance:
+				candidate_found = true
+				best_distance = candidate_distance
+				emergency_target = cell_centre(candidate, start_position.y)
+		if not candidate_found:
+			return []
+	return build_direct_route(start_position, emergency_target)
+
+
 static func _create_astar(half_extent: float, blocked_cells: Dictionary) -> AStarGrid2D:
 	return _create_astar_for_region(
 		Rect2i(

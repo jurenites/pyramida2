@@ -120,6 +120,18 @@ A `Player-Facing Label` is text displayed inside the game interface. A Player-Fa
 
 A `Physical Resource` is a resource represented by a persistent world object while the Physical Resource is loose, reserved, carried, or installed. A Physical Resource preserves relevant identity and material provenance across those states.
 
+## Emergency Escape
+
+`Emergency Escape` is the anti-entrapment fallback used only when a Citizen's current World Unit has no legal neighbouring exit. After a short visible delay, the Citizen may cross one or more Hard Blockers to recover from an otherwise permanent prison. Future multi-level navigation may express the same rule by crawling, climbing, controlled falling, or another physical recovery action.
+
+## Hard Blocker
+
+A `Hard Blocker` is a World Unit or Building face that normal Citizen navigation cannot cross. Limestone, player-authored Soil Blocks at the walking level, and a Warehouse wall are Hard Blockers. A Warehouse Door is not a Hard Blocker.
+
+## Soft Obstacle
+
+A `Soft Obstacle` remains physically passable but has a higher route-search cost than normal ground. A Cactus is a Soft Obstacle: Citizens prefer to walk around it but may cross its World Unit when that is the practical route.
+
 ## RTS Unit Mode
 
 `RTS Unit Mode` is the player interaction mode entered by selecting one or more Citizens. RTS Unit Mode supports Citizen selection and movement orders. RTS Unit Mode uses a fully rounded count badge for the selected Citizen count.

@@ -21,6 +21,8 @@ tunnel_name_text,Tunnel,12,bottom_construction_catalog,Two or more connected exc
 warehouse_name_text,Warehouse,16,bottom_construction_catalog,One-door enclosed Storage unit
 small_livable_name_text,Small home,16,bottom_construction_catalog,One World Unit Livable building
 support_platform_name_text,Support platform,24,bottom_construction_catalog,Unavailable preview of the next Support upgrade
+platform_name_text,Platform,16,bottom_construction_catalog,Four-Log Support topped by four horizontal Planks
+sawmill_name_text,Sawmill,16,bottom_construction_catalog,Open-sided one World Unit workshop that converts Logs into Planks
 pergola_name_text,Pergola,16,bottom_construction_catalog,Unavailable preview of the soft-cover Support form
 livable_house_name_text,Living house,24,bottom_construction_catalog,Unavailable preview of the livable building form
 exit_button_tooltip_text,Quit,12,top_right_toolbar,Action label shown while hovering over the exit button
@@ -86,6 +88,9 @@ citizen_walking_to_excavation_status_text,Walking to excavation,40,citizen_statu
 citizen_digging_status_text,Excavating,24,citizen_status,Shown during timed excavation work
 citizen_excavation_complete_status_text,Excavation complete,32,citizen_status,Shown after one sand World Unit is removed
 citizen_excavation_unavailable_status_text,Excavation unavailable,40,citizen_status,Shown if an excavation assignment disappeared
+citizen_sawing_plank_status_text,Sawing plank,32,citizen_status,Applying three seconds of work to convert one Log into one Plank
+citizen_plank_complete_status_text,Plank complete,32,citizen_status,One Plank was produced and returned to storage
+citizen_sawmill_needs_log_status_text,Sawmill needs log,32,citizen_status,Sawmill cannot begin its one Log to one Plank recipe
 support_material_progress_text,Support %d/%d logs,32,world_hover,Construction tooltip showing delivered and required Logs
 citizen_debug_hover_text,"debug · %s · %s · (%.2f, %.2f)",80,debug_hover,Citizen variant status and coordinates replace the placeholders
 support_debug_hover_text,"debug · logs %d/%d · (%.0f, %.0f)",80,debug_hover,Log counts and coordinates replace the placeholders

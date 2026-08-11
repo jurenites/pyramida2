@@ -6,6 +6,7 @@ const LIMESTONE_SHADER := preload("res://shaders/limestone.gdshader")
 const Palette = preload("res://scripts/game_palette.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
 const DeterministicRandomScript = preload("res://scripts/deterministic_random.gd")
+const CitizenNavigationPolicyScript = preload("res://scripts/citizen_navigation_policy.gd")
 
 const TREE_SEGMENT_HEIGHT := 1.0
 const LOOSE_LOG_LENGTH := WoodVisual.LOG_LENGTH
@@ -205,7 +206,7 @@ func release_from_carry(world_position: Vector3) -> void:
 	global_position = world_position
 	visible = true
 	if _body != null:
-		_body.collision_layer = 1
+		_body.collision_layer = CitizenNavigationPolicyScript.world_item_collision_layer(item_kind)
 
 
 func _process(delta: float) -> void:
@@ -818,7 +819,14 @@ func _add_mesh(mesh: Mesh, color: Color, local_position: Vector3, unshaded := fa
 
 func _add_collision(size: Vector3, local_position: Vector3) -> void:
 	_body = StaticBody3D.new()
+	_body.collision_layer = CitizenNavigationPolicyScript.world_item_collision_layer(item_kind)
 	_body.set_meta("world_object", self)
+	# This body keeps the WorldItem clickable. Citizen routing reads the separate
+	# navigation policy, so a Tree can be passable without losing interaction.
+	_body.set_meta(
+		"citizen_navigation_mode",
+		CitizenNavigationPolicyScript.world_item_mode(item_kind)
+	)
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = size

@@ -1,6 +1,8 @@
 class_name PileStorage
 extends Node3D
 
+const CitizenNavigationPolicyScript = preload("res://scripts/citizen_navigation_policy.gd")
+
 const Palette = preload("res://scripts/game_palette.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
 const DEFAULT_FOOTPRINT: Array[Vector2i] = [
@@ -198,6 +200,16 @@ func speech_actor_kind() -> String:
 	return "building"
 
 
+func selection_outline_local_boxes() -> Array[AABB]:
+	var occupied_boxes: Array[AABB] = []
+	for local_cell in _footprint_cells:
+		occupied_boxes.append(AABB(
+			Vector3(float(local_cell.x) - 0.5, 0.0, float(local_cell.y) - 0.5),
+			Vector3.ONE
+		))
+	return occupied_boxes
+
+
 func _build_structure() -> void:
 	if is_instance_valid(_structure_root):
 		_structure_root.queue_free()
@@ -225,6 +237,10 @@ func _build_structure() -> void:
 
 	var body := StaticBody3D.new()
 	body.name = "PileCollision"
+	body.collision_layer = (
+		CitizenNavigationPolicyScript.INTERACTION_COLLISION_LAYER
+		| CitizenNavigationPolicyScript.CITIZEN_BLOCKER_COLLISION_LAYER
+	)
 	body.set_meta("world_object", self)
 	for local_cell in _footprint_cells:
 		var shape := CollisionShape3D.new()
@@ -295,6 +311,24 @@ func _rebuild_contents() -> void:
 		)
 		berry.material_override = _flat_material(Palette.WOODEN_ROOF)
 		_contents_root.add_child(berry)
+
+	var stored_planks := resource_count("plank")
+	for plank_index in stored_planks:
+		var plank_layer := floori(float(plank_index) / 4.0)
+		var plank_slot := plank_index % 4
+		var plank_mesh := BoxMesh.new()
+		plank_mesh.size = Vector3(0.92, 0.08, 0.16)
+		var stored_plank := MeshInstance3D.new()
+		stored_plank.name = "StoredPlank_%02d" % (plank_index + 1)
+		stored_plank.mesh = plank_mesh
+		stored_plank.position = stack_centre + Vector3(
+			0.0,
+			0.06 + float(plank_layer) * 0.09,
+			-0.72 + float(plank_slot) * 0.18
+		)
+		stored_plank.material_override = _flat_material(Palette.WOODEN_ROOF)
+		stored_plank.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_contents_root.add_child(stored_plank)
 
 
 func _footprint_local_centre() -> Vector3:

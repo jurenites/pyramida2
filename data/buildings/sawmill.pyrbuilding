@@ -1,0 +1,21 @@
+{
+	"format": "pyramida-building",
+	"format_version": 2,
+	"id": "sawmill",
+	"display_name": "Sawmill",
+	"bounds_world_units": [1, 1, 1],
+	"recipe_mode": "derived",
+	"workshop_recipes": [{"id":"saw_plank","input":{"log":1},"output":{"plank":1},"work_seconds":3.0}],
+	"parts": [
+		{"id":"post_sw","kind":"log","material":"wood","resource":"log","sub_unit":[0,0,0],"orientation":"y","visual_variant":0,"geometry":{"primitive":"log","start":[-0.40,0.02,-0.40],"end":[-0.40,0.70,-0.40],"start_radius":0.10,"end_radius":0.08,"sides":6}},
+		{"id":"post_se","kind":"log","material":"wood","resource":"log","sub_unit":[1,0,0],"orientation":"y","visual_variant":1,"geometry":{"primitive":"log","start":[0.40,0.02,-0.40],"end":[0.40,0.70,-0.40],"start_radius":0.10,"end_radius":0.08,"sides":6}},
+		{"id":"post_nw","kind":"log","material":"wood","resource":"log","sub_unit":[0,0,1],"orientation":"y","visual_variant":2,"geometry":{"primitive":"log","start":[-0.40,0.02,0.40],"end":[-0.40,0.70,0.40],"start_radius":0.10,"end_radius":0.08,"sides":6}},
+		{"id":"post_ne","kind":"log","material":"wood","resource":"log","sub_unit":[1,0,1],"orientation":"y","visual_variant":0,"geometry":{"primitive":"log","start":[0.40,0.02,0.40],"end":[0.40,0.70,0.40],"start_radius":0.10,"end_radius":0.08,"sides":6}},
+		{"id":"beam_s","kind":"log","material":"wood","resource":"log","sub_unit":[0,1,0],"orientation":"x","visual_variant":1,"geometry":{"primitive":"log","start":[-0.43,0.70,-0.40],"end":[0.43,0.70,-0.40],"start_radius":0.08,"end_radius":0.08,"sides":6}},
+		{"id":"beam_n","kind":"log","material":"wood","resource":"log","sub_unit":[0,1,1],"orientation":"x","visual_variant":2,"geometry":{"primitive":"log","start":[-0.43,0.70,0.40],"end":[0.43,0.70,0.40],"start_radius":0.08,"end_radius":0.08,"sides":6}},
+		{"id":"beam_w","kind":"log","material":"wood","resource":"log","sub_unit":[0,1,0],"orientation":"z","visual_variant":0,"geometry":{"primitive":"log","start":[-0.40,0.70,-0.43],"end":[-0.40,0.70,0.43],"start_radius":0.08,"end_radius":0.08,"sides":6}},
+		{"id":"beam_e","kind":"log","material":"wood","resource":"log","sub_unit":[1,1,0],"orientation":"z","visual_variant":1,"geometry":{"primitive":"log","start":[0.40,0.70,-0.43],"end":[0.40,0.70,0.43],"start_radius":0.08,"end_radius":0.08,"sides":6}},
+		{"id":"roof_w","kind":"log","material":"wood","resource":"log","sub_unit":[0,1,1],"orientation":"x","visual_variant":2,"geometry":{"primitive":"log","start":[-0.40,0.72,0.0],"end":[0.0,0.96,0.0],"start_radius":0.08,"end_radius":0.07,"sides":6}},
+		{"id":"roof_e","kind":"log","material":"wood","resource":"log","sub_unit":[1,1,1],"orientation":"x","visual_variant":0,"geometry":{"primitive":"log","start":[0.0,0.96,0.0],"end":[0.40,0.72,0.0],"start_radius":0.07,"end_radius":0.08,"sides":6}}
+	]
+}

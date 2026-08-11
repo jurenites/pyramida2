@@ -7,6 +7,7 @@ const WoodVisual = preload("res://scripts/wood_visual.gd")
 
 var blueprint: BuildingBlueprint
 var editor_gray_mode := false
+var preview_alpha := 1.0
 var _parts_root: Node3D
 
 
@@ -22,6 +23,35 @@ func set_blueprint(new_blueprint: BuildingBlueprint) -> void:
 func set_editor_gray_mode(enabled: bool) -> void:
 	editor_gray_mode = enabled
 	_rebuild()
+
+
+func selection_outline_local_boxes() -> Array[AABB]:
+	var occupied_boxes: Array[AABB] = []
+	if blueprint == null:
+		return occupied_boxes
+	var occupied_sub_units := {}
+	for blueprint_part in blueprint.parts:
+		var sub_unit_value: Variant = blueprint_part.get("sub_unit", [])
+		if not sub_unit_value is Array or sub_unit_value.size() != 3:
+			continue
+		var sub_unit := Vector3i(
+			int(sub_unit_value[0]),
+			int(sub_unit_value[1]),
+			int(sub_unit_value[2])
+		)
+		var sub_unit_key := "%d,%d,%d" % [sub_unit.x, sub_unit.y, sub_unit.z]
+		if occupied_sub_units.has(sub_unit_key):
+			continue
+		occupied_sub_units[sub_unit_key] = true
+		occupied_boxes.append(AABB(
+			Vector3(
+				-0.5 + 0.5 * float(sub_unit.x),
+				0.5 * float(sub_unit.y),
+				-0.5 + 0.5 * float(sub_unit.z)
+			),
+			Vector3.ONE * 0.5
+		))
+	return occupied_boxes
 
 
 func _rebuild() -> void:
@@ -45,10 +75,46 @@ func _render_part(blueprint_part: Dictionary) -> MeshInstance3D:
 	var geometry: Dictionary = blueprint_part.get("geometry", {})
 	var material_id := str(blueprint_part.get("material", "wood"))
 	var visual_variant := posmod(int(blueprint_part.get("visual_variant", 0)), 3)
-	var part_colour := Color("#8A8A8A") if editor_gray_mode else MaterialCatalog.colour(material_id)
-	if part_kind == "log":
-		return _render_log(geometry, part_colour, visual_variant)
-	return _render_box(geometry, part_colour, visual_variant)
+	var part_colour := Color("#808080") if editor_gray_mode else MaterialCatalog.colour(material_id)
+	part_colour.a = clampf(preview_alpha, 0.0, 1.0)
+	var primitive := str(geometry.get("primitive", "log" if part_kind == "log" else "box"))
+	var rendered_part: MeshInstance3D
+	if primitive == "log":
+		rendered_part = _render_log(geometry, part_colour, visual_variant)
+	elif primitive == "sphere":
+		rendered_part = _render_sphere(geometry, part_colour, visual_variant)
+	else:
+		rendered_part = _render_box(geometry, part_colour, visual_variant)
+	if rendered_part != null:
+		rendered_part.set_meta("blueprint_part_id", str(blueprint_part.get("id", "part")))
+		rendered_part.set_meta("resource_kind", str(blueprint_part.get("resource", "")))
+		rendered_part.set_meta("decorative", bool(blueprint_part.get("decorative", false)))
+	return rendered_part
+
+
+func _render_sphere(
+	geometry: Dictionary,
+	part_colour: Color,
+	visual_variant: int
+) -> MeshInstance3D:
+	var sphere_mesh := SphereMesh.new()
+	sphere_mesh.radius = float(geometry.get("radius", 0.11))
+	sphere_mesh.height = float(geometry.get("height", sphere_mesh.radius * 1.5))
+	sphere_mesh.radial_segments = clampi(int(geometry.get("sides", 7)), 4, 12)
+	sphere_mesh.rings = 3
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.mesh = sphere_mesh
+	mesh_instance.position = BuildingBlueprintScript.vector3_from_value(geometry.get("centre", []))
+	mesh_instance.rotation_degrees = BuildingBlueprintScript.vector3_from_value(
+		geometry.get("rotation_degrees", [])
+	)
+	mesh_instance.rotation_degrees.y += float(visual_variant) * 11.0
+	mesh_instance.scale = BuildingBlueprintScript.vector3_from_value(
+		geometry.get("scale", []),
+		Vector3.ONE
+	)
+	mesh_instance.material_override = _part_material(part_colour)
+	return mesh_instance
 
 
 func _render_log(
@@ -123,4 +189,6 @@ func _part_material(part_colour: Color) -> StandardMaterial3D:
 	part_material.albedo_color = part_colour
 	part_material.roughness = 0.92
 	part_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if part_colour.a < 1.0:
+		part_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	return part_material

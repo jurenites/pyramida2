@@ -22,11 +22,13 @@ var _is_walking := false
 var _route: Array[Vector3] = []
 var _route_preview: Array[Vector3] = []
 var _route_travel_costs: Dictionary = {}
+var _route_start_delay_remaining := 0.0
 var _route_index := 0
 var _elapsed := 0.0
 var _walk_phase := 0.0
 var _visual: Node3D
 var _carried_log: MeshInstance3D
+var _carried_plank: MeshInstance3D
 var _carried_food_root: Node3D
 var _left_leg: Node3D
 var _right_leg: Node3D
@@ -67,7 +69,8 @@ func assign_task(destination: Vector3, next_task: Dictionary) -> void:
 func assign_route(
 	next_route: Array[Vector3],
 	next_task: Dictionary,
-	next_travel_costs: Dictionary = {}
+	next_travel_costs: Dictionary = {},
+	start_delay_seconds := 0.0
 ) -> void:
 	_route = next_route.duplicate()
 	_route_travel_costs = next_travel_costs
@@ -75,13 +78,18 @@ func assign_route(
 	_route_preview.append(global_position)
 	_route_preview.append_array(_route)
 	_route_index = 0
+	_route_start_delay_remaining = maxf(0.0, start_delay_seconds)
 	_destination = _route[0] if not _route.is_empty() else global_position
 	task = next_task
 	_resume_walking_after_sleep = not _route.is_empty()
-	_is_walking = _resume_walking_after_sleep and not _is_sleeping
+	_is_walking = (
+		_resume_walking_after_sleep
+		and not _is_sleeping
+		and _route_start_delay_remaining <= 0.0
+	)
 	status_text_key = str(task.get("status_text_key", UIText.CITIZEN_WALKING_STATUS_TEXT))
 	status_text_arguments = task.get("status_text_arguments", [])
-	if not _is_walking and not _is_sleeping:
+	if not _is_walking and not _is_sleeping and _route_start_delay_remaining <= 0.0:
 		arrived.emit(self)
 
 
@@ -94,6 +102,7 @@ func finish_task(
 	_route.clear()
 	_route_preview.clear()
 	_route_travel_costs = {}
+	_route_start_delay_remaining = 0.0
 	_route_index = 0
 	_resume_walking_after_sleep = false
 	status_text_key = next_status_text_key
@@ -115,6 +124,13 @@ func speech_actor_kind() -> String:
 func set_carrying_log(is_carrying: bool) -> void:
 	if _carried_log != null:
 		_carried_log.visible = is_carrying
+
+
+func set_carrying_resource(resource_kind: String, is_carrying: bool) -> void:
+	if is_instance_valid(_carried_log):
+		_carried_log.visible = is_carrying and resource_kind == "log"
+	if is_instance_valid(_carried_plank):
+		_carried_plank.visible = is_carrying and resource_kind == "plank"
 
 
 func set_carrying_food(is_carrying: bool) -> void:
@@ -143,11 +159,15 @@ func set_sleeping(should_sleep: bool) -> void:
 		_set_sleep_visual_visible(true)
 		return
 	_set_sleep_visual_visible(false)
-	_is_walking = _resume_walking_after_sleep and _route_index < _route.size()
+	_is_walking = (
+		_resume_walking_after_sleep
+		and _route_index < _route.size()
+		and _route_start_delay_remaining <= 0.0
+	)
 	if _is_walking:
 		status_text_key = str(task.get("status_text_key", UIText.CITIZEN_WALKING_STATUS_TEXT))
 		status_text_arguments = task.get("status_text_arguments", [])
-	elif not task.is_empty():
+	elif not task.is_empty() and _route_start_delay_remaining <= 0.0:
 		arrived.emit(self)
 	else:
 		status_text_key = UIText.CITIZEN_IDLE_STATUS_TEXT
@@ -178,7 +198,7 @@ func is_busy() -> bool:
 
 
 func has_active_route() -> bool:
-	return _is_walking
+	return _is_walking or (_route_start_delay_remaining > 0.0 and not _route.is_empty())
 
 
 func route_target() -> Vector3:
@@ -187,7 +207,7 @@ func route_target() -> Vector3:
 
 func route_points() -> Array[Vector3]:
 	var points: Array[Vector3] = []
-	if not _is_walking or _route_preview.is_empty():
+	if not has_active_route() or _route_preview.is_empty():
 		return points
 	# The visible route begins at the moving Citizen, bends through only the
 	# remaining waypoints, and ends at one target dot. Intermediate waypoints do
@@ -202,6 +222,14 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	if _is_sleeping:
 		_animate_sleep()
+	elif _route_start_delay_remaining > 0.0:
+		_route_start_delay_remaining = maxf(
+			0.0,
+			_route_start_delay_remaining - delta * _simulation_speed
+		)
+		_animate_idle()
+		if _route_start_delay_remaining <= 0.0 and _route_index < _route.size():
+			_is_walking = true
 	elif _is_walking:
 		_walk(delta * _simulation_speed)
 	elif _is_chopping:
@@ -219,10 +247,11 @@ func _walk(delta: float) -> void:
 	var destination_cost := float(
 		_route_travel_costs.get(destination_cell, GridNavigationScript.GROUND_TRAVEL_COST)
 	)
-	var surface_speed_multiplier := GridNavigationScript.GROUND_TRAVEL_COST / maxf(
-		GridNavigationScript.ROAD_TRAVEL_COST,
-		destination_cost
-	)
+	var surface_speed_multiplier := 1.0
+	if destination_cost <= GridNavigationScript.ROAD_TRAVEL_COST:
+		surface_speed_multiplier = (
+			GridNavigationScript.GROUND_TRAVEL_COST / GridNavigationScript.ROAD_TRAVEL_COST
+		)
 	var maximum_step := WALK_SPEED * surface_speed_multiplier * delta
 	var direction := offset / distance if distance > 0.0 else Vector3.ZERO
 	var intended_position := global_position + direction * minf(distance, maximum_step)
@@ -372,6 +401,15 @@ func _build_visual() -> void:
 	_carried_log.material_override = WoodVisual.binary_material(Palette.ROOF_LOG)
 	_carried_log.visible = false
 	_visual.add_child(_carried_log)
+	var carried_plank_mesh := BoxMesh.new()
+	carried_plank_mesh.size = Vector3(0.92, 0.1, 0.28)
+	_carried_plank = MeshInstance3D.new()
+	_carried_plank.name = "CarriedPlank"
+	_carried_plank.mesh = carried_plank_mesh
+	_carried_plank.position = Vector3(0.0, 1.0, -0.34)
+	_carried_plank.material_override = WoodVisual.binary_material(Palette.WOODEN_ROOF)
+	_carried_plank.visible = false
+	_visual.add_child(_carried_plank)
 	_build_carried_food()
 
 	var collision_body := StaticBody3D.new()
