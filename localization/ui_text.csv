@@ -2,17 +2,19 @@ keys,en,_character_limit,_interface_location,_translator_note
 prototype_title_text,FOUNDATION PROTOTYPE,32,top_left_title,Prototype title
 prototype_instructions_text,Click/drag: select citizens   •   Click ground: deselect   •   Right-click: move or work\nWASD: move camera   •   Right-click tree/site: assign citizen   •   B: building menu,180,top_left_instructions,Keep the two-line structure by preserving the escaped newline
 build_button_tooltip_text,Build,12,top_right_toolbar,Action label shown while hovering over the building button
+greenery_button_tooltip_text,Manage greenery,24,top_right_toolbar,Opens the mode for moving Bushes and Tree Stumps
 population_tooltip_text,Population,16,top_left_status,Total number of citizens in the current simulation
-simulation_speed_tooltip_text,Simulation speed,24,top_right_toolbar,Click to cycle between one two and four times simulation speed
-deconstruct_button_tooltip_text,Deconstruct,16,top_right_toolbar,Action label shown while hovering over the deconstruction button
+simulation_speed_tooltip_text,Speed,24,top_right_toolbar,Click to cycle between one two and four times simulation speed
+remove_building_tooltip_text,Remove building,24,bottom_construction_catalog,Action label shown above the dotted Building removal tool
 excavate_tool_tooltip_text,Excavate,16,bottom_construction_catalog,Landscape tool that creates a Citizen excavation assignment
 support_platform_name_text,Support platform,24,bottom_construction_catalog,Unavailable preview of the next Support upgrade
 pergola_name_text,Pergola,16,bottom_construction_catalog,Unavailable preview of the soft-cover Support form
 livable_house_name_text,Living house,24,bottom_construction_catalog,Unavailable preview of the livable building form
 exit_button_tooltip_text,Quit,12,top_right_toolbar,Action label shown while hovering over the exit button
 compass_button_tooltip_text,Reset view,16,bottom_right_compass,Action label shown while hovering over the compass
-building_rotate_hotkey_text,↻  R,8,selected_building_hotkey_hint,Show only the clockwise icon and R key; do not expose the reverse modifier here
+building_rotate_hotkey_text,↻  R,8,selected_construction_site_hotkey_hint,Show only while the selected Building remains unfinished; do not expose the reverse modifier here
 building_mode_label_text,BUILD,16,top_left_mode,Short mode label
+greenery_mode_label_text,GREENERY,16,top_left_mode,Shown while moving Bushes or Tree Stumps
 citizen_mode_label_text,CITIZEN,16,top_left_mode,Shown whenever one or more Citizens are selected for orders
 command_mode_label_text,COMMAND,16,top_left_mode,Short mode label
 day_count_text,Day %d,16,top_left_day_counter,The number replaces %d
@@ -26,6 +28,7 @@ onboarding_dismiss_button_text,Got it,16,onboarding_panel_button,Action label
 citizen_name_text,Citizen,16,world_hover,World object noun
 support_name_text,Support,16,world_hover,World object noun used for planned and completed Supports
 excavation_name_text,Excavation,16,world_hover,Short name for a planned sand excavation
+pile_name_text,Pile,16,world_hover,Starting shared storage building
 tree_name_text,Tree,16,world_hover,World object noun
 dead_tree_name_text,Dead Tree,16,world_hover,Dead must remain visible because Dead Trees behave differently
 palm_name_text,Palm,16,world_hover,World object noun
@@ -39,6 +42,7 @@ log_name_text,Log,16,world_hover,World object noun
 stump_name_text,Stump,16,world_hover,World object noun left after cutting a tree
 sand_name_text,Sand,16,world_hover,World surface noun
 citizen_idle_status_text,Idle,32,citizen_status,Short state label
+citizen_sleeping_status_text,Sleeping,32,citizen_status,Night state while lying on the ground
 citizen_walking_status_text,Walking,32,citizen_status,Short state label
 citizen_selected_status_text,Selected,32,citizen_status,Short state label
 citizen_no_route_status_text,No route,32,citizen_status,Short failure state
@@ -54,9 +58,12 @@ citizen_bush_regrowing_status_text,Bush is regrowing,32,citizen_status,Failure s
 citizen_harvesting_bush_status_text,Harvesting bush,32,citizen_status,Shown during timed bush harvesting work
 citizen_collected_water_status_text,Collected 1 water,32,citizen_status,Collection result
 citizen_cactus_unavailable_status_text,Cactus unavailable,32,citizen_status,Failure state
+citizen_water_needs_vessel_status_text,Water needs a vessel,32,citizen_status,Water cannot enter an open Pile without pottery or a bottle
 citizen_collecting_cactus_status_text,Collecting water,32,citizen_status,Shown during timed cactus collection work
 citizen_log_unavailable_status_text,Log unavailable,32,citizen_status,Failure state
 citizen_carrying_log_status_text,Carrying log,32,citizen_status,Current action
+citizen_building_status_text,Building,32,citizen_status,Applying one carried building block to a Construction Site
+citizen_carrying_food_status_text,Carrying food,32,citizen_status,Current action while returning harvested Calories to the Pile
 citizen_construction_site_unavailable_status_text,Site unavailable,32,citizen_status,Failure state shown to the player with a short label
 citizen_cutting_tree_status_text,Cutting tree,32,citizen_status,Current action
 citizen_cut_log_status_text,Cut 1 log,32,citizen_status,Completed tree-cutting result
@@ -64,8 +71,9 @@ citizen_walking_to_excavation_status_text,Walking to excavation,40,citizen_statu
 citizen_digging_status_text,Excavating,24,citizen_status,Shown during timed excavation work
 citizen_excavation_complete_status_text,Excavation complete,32,citizen_status,Shown after one sand World Unit is removed
 citizen_excavation_unavailable_status_text,Excavation unavailable,40,citizen_status,Shown if an excavation assignment disappeared
-support_material_progress_text,Support %d/%d logs,32,world_label,Delivered and required log counts replace the placeholders
+support_material_progress_text,Support %d/%d logs,32,world_hover,Construction tooltip showing delivered and required Logs
 citizen_debug_hover_text,"debug · %s · %s · (%.2f, %.2f)",80,debug_hover,Citizen variant status and coordinates replace the placeholders
 support_debug_hover_text,"debug · logs %d/%d · (%.0f, %.0f)",80,debug_hover,Log counts and coordinates replace the placeholders
 world_item_debug_hover_text,debug · seed %d · logs %d · water %d,80,debug_hover,Seed log count and water count replace the placeholders
 world_unit_debug_hover_text,"debug · World Unit (%d, %d)",48,debug_hover,World Unit coordinates replace the placeholders
+pile_debug_hover_text,debug · logs %d · calories %d,48,debug_hover,Pile inventory counters replace the placeholders

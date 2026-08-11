@@ -1,0 +1,25 @@
+{
+	"bounds_world_units": [1, 1, 1],
+	"display_name": "Four Log Support",
+	"format": "pyramida-building",
+	"format_version": 1,
+	"id": "four_log_support",
+	"parts": [
+		{
+			"geometry": {"end": [-0.36, 1.0, -0.36], "end_radius": 0.09, "sides": 6, "start": [-0.36, 0.02, -0.36], "start_radius": 0.13},
+			"id": "south_west_log", "kind": "log", "material": "wood", "orientation": "y", "resource": "log", "sub_unit": [0, 0, 0], "visual_variant": 0
+		},
+		{
+			"geometry": {"end": [0.36, 1.0, -0.36], "end_radius": 0.09, "sides": 6, "start": [0.36, 0.02, -0.36], "start_radius": 0.13},
+			"id": "south_east_log", "kind": "log", "material": "wood", "orientation": "y", "resource": "log", "sub_unit": [1, 0, 0], "visual_variant": 1
+		},
+		{
+			"geometry": {"end": [-0.36, 1.0, 0.36], "end_radius": 0.09, "sides": 6, "start": [-0.36, 0.02, 0.36], "start_radius": 0.13},
+			"id": "north_west_log", "kind": "log", "material": "wood", "orientation": "y", "resource": "log", "sub_unit": [0, 0, 1], "visual_variant": 2
+		},
+		{
+			"geometry": {"end": [0.36, 1.0, 0.36], "end_radius": 0.09, "sides": 6, "start": [0.36, 0.02, 0.36], "start_radius": 0.13},
+			"id": "north_east_log", "kind": "log", "material": "wood", "orientation": "y", "resource": "log", "sub_unit": [1, 0, 1], "visual_variant": 0
+		}
+	]
+}

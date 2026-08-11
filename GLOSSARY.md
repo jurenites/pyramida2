@@ -1,6 +1,8 @@
 # Pyramida 2 — Glossary
 
-Status: living terminology document. Definitions describe the current design direction and remain open to deliberate revision.
+Status: terminology only, subordinate to code and tests.
+
+Definitions provide names for implemented and deferred concepts; they do not claim that every entry is playable. [README.md](README.md) is the current behaviour summary. If terminology prose conflicts with code, update the prose rather than restoring obsolete behaviour.
 
 The glossary favours explicit repetition over pronouns when repetition makes the subject easier to follow. A definition may repeat the complete term within one sentence or paragraph instead of replacing the complete term with “it” or another ambiguous reference.
 
@@ -13,6 +15,10 @@ An `Anchor Node` is a structural attachment point at the centre of one Sub-Unit 
 ## Building
 
 A `Building` is a constructed entity assembled from physical resources. A Building may contain smaller groups such as Levels, Flats, or Rooms, but a Building does not require every possible group. A completed Building remains visible outside Building Mode.
+
+## Building Blueprint
+
+A `Building Blueprint` is a versioned, human-readable definition of a Building's logical parts, transforms, materials, resources, Sub-Unit occupancy, Cosmetic Variants, and future grouping. The same Building Blueprint can be edited in the Building Constructor, stored as a player file, shipped under `res://data/buildings/` as an official prefab, rendered in the world, or wrapped by a Construction Site. A Building Blueprint is not a flattened mesh.
 
 ## Building Mode
 
@@ -52,7 +58,7 @@ A `Floor` is a traversable vertical level that may be connected to other Floors 
 
 ## Construction Site
 
-A `Construction Site` is a placed, unfinished Building location. A Construction Site records the selected Building type, position, orientation, required physical resources, delivered physical resources, and completion state. A Construction Site displays planned geometry during Building Mode and replaces planned geometry with installed construction as work progresses.
+A `Construction Site` is a placed, unfinished Building location. A Construction Site records the selected Building type, position, orientation, required physical resources, delivered physical resources, per-resource installation labour, and completion state. Selecting a Construction Site enters Building Mode, outlines the complete future bounds, displays remaining planned geometry in 50%-opaque gray, and shows a three-line Construction Inspector above the site. The Construction Inspector contains the Building name, one total-labour progress bar, and one Full Scale Icon Number per required material. A selected Construction Site may be rotated while unfinished; installing its final material removes rotation and locks the completed Building at that orientation. A Construction Site replaces each planned component with its installed Physical Resource as work progresses.
 
 ## Cord Path Point
 
@@ -60,7 +66,7 @@ A `Cord Path Point` is a shape-control point used by a flexible cord. A Cord Pat
 
 ## Discovery Mask
 
-A `Discovery Mask` is a persistent binary record of the horizontal Sub-Unit areas revealed by Citizens. A Discovery Mask does not reveal or serialize covered underground cells.
+A `Discovery Mask` is a binary record of horizontal Sub-Unit areas revealed by Citizens. The current mask survives chunk unload/reload only within the running session; disk persistence and underground discovery are not implemented.
 
 ## Cosmetic Variant
 
@@ -68,7 +74,7 @@ A `Cosmetic Variant` is one of at least three visual forms available to a placea
 
 ## Forecast Ring
 
-The `Forecast Ring` is the streaming region beyond visible presentation where terrain and future outside-settlement state are prepared before a Citizen can reach them.
+The deferred `Forecast Ring` is a planned streaming region beyond visible presentation where terrain and future outside-settlement state could be prepared before a Citizen reaches them. The current streamer has only a presentation radius.
 
 ## Generator Version
 
@@ -78,9 +84,21 @@ A `Generator Version` identifies an immutable deterministic world-generation alg
 
 A `Hard Surface` is a walkable form of the Surface construction family. A Hard Surface may act as a floor, road, platform, ceiling, terrace, or roof according to context. A Hard Surface may support construction above the Hard Surface.
 
+## Greenery Mode
+
+`Greenery Mode` is the player mode opened by the Tree icon beside the Building icon. It allows one Bush or rooted Tree Stump to be selected and re-rooted into a revealed, loaded, unoccupied World Unit. Re-rooting preserves the object's Permanent Detail Seed, resource cooldown, and growth timer. Greenery Mode does not relocate standing Trees, loose Logs, or terrain.
+
+## Icon Number
+
+An `Icon Number` is the shared interface element that pairs one object icon with an integer or an installed/required fraction. A Standard Icon Number remains fixed at the same 44×44 icon size as the Building and Quit toolbar buttons. A Full Scale Icon Number changes only the icon from 1× at maximum camera zoom-out to 2× at maximum camera zoom-in, preserving the represented Physical Resource or world object's apparent scale; the number font size remains fixed. A Compact Icon Number keeps both icon size and number font size fixed for dense summaries. Population uses a Standard Icon Number, selected Construction Site materials use Full Scale Icon Numbers, and each selected-Pile resource uses a Compact Icon Number.
+
 ## Permanent Detail Seed
 
 A `Permanent Detail Seed` is deterministic data used to reproduce safe visual variation for a persistent world element. A Permanent Detail Seed may control details such as log bend, plank spacing, colour variation, wear, or idle-motion phase. A Permanent Detail Seed must not change logical geometry.
+
+## Pile
+
+A `Pile` is the first shared Storage Building. The starting Pile occupies a 2×2 footprint of four World Units. Its shape is represented by occupied cells so later connected expansion may form non-rectangular footprints. Small stones mark convex outer boundary vertices; straight joins and concave notches do not receive stones. A Pile uses a generic resource-count store so later resource families do not require a new Building type; the current visuals specifically represent Logs and Calories. Citizens carry collected Logs and Calories to the nearest accessible part of the Pile, and construction withdraws Logs from the Pile. An open Pile cannot store Water without a vessel. The current prototype has no capacity limit or expansion interface.
 
 ## Player-Facing Label
 

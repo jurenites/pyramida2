@@ -6,6 +6,7 @@ const UIText = preload("res://scripts/ui_text_catalog.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
 
 const REQUIRED_LOGS := 4
+const LOG_INSTALLATION_SECONDS := 3.0
 const CORNERS := [
 	Vector3(-0.36, 0.0, -0.36),
 	Vector3(0.36, 0.0, -0.36),
@@ -15,9 +16,10 @@ const CORNERS := [
 
 var delivered_logs := 0
 var _assignment_branches: Array[MeshInstance3D] = []
-var _label: Label3D
+var _planned_posts: Array[MeshInstance3D] = []
 var _body: StaticBody3D
 var _planning_visible := true
+var _reserved_log_contributors: Dictionary = {}
 
 
 func _ready() -> void:
@@ -25,11 +27,43 @@ func _ready() -> void:
 
 
 func needs_log() -> bool:
-	return delivered_logs < REQUIRED_LOGS
+	return delivered_logs + _reserved_log_contributors.size() < REQUIRED_LOGS
+
+
+func reserve_log(contributor_id: int) -> int:
+	if _reserved_log_contributors.has(contributor_id):
+		return int(_reserved_log_contributors[contributor_id])
+	if not needs_log():
+		return -1
+	var reservation_slot := 0
+	var used_slots := _reserved_log_contributors.values()
+	while used_slots.has(reservation_slot):
+		reservation_slot += 1
+	_reserved_log_contributors[contributor_id] = reservation_slot
+	return reservation_slot
+
+
+func has_log_reservation(contributor_id: int) -> bool:
+	return _reserved_log_contributors.has(contributor_id)
+
+
+func release_log_reservation(contributor_id: int) -> void:
+	_reserved_log_contributors.erase(contributor_id)
+
+
+func apply_reserved_log(contributor_id: int) -> bool:
+	if not has_log_reservation(contributor_id):
+		return false
+	_reserved_log_contributors.erase(contributor_id)
+	return deliver_log()
 
 
 func is_planned() -> bool:
 	return delivered_logs < REQUIRED_LOGS
+
+
+func is_complete() -> bool:
+	return not is_planned()
 
 
 func set_planning_visible(planning_is_visible: bool) -> void:
@@ -39,18 +73,23 @@ func set_planning_visible(planning_is_visible: bool) -> void:
 	for branch in _assignment_branches:
 		if is_instance_valid(branch):
 			branch.visible = is_planned()
-	if is_instance_valid(_label):
-		_label.visible = planning_is_visible and is_planned()
+	for post_index in _planned_posts.size():
+		var planned_post := _planned_posts[post_index]
+		if is_instance_valid(planned_post):
+			planned_post.visible = (
+				_planning_visible
+				and is_planned()
+				and post_index >= delivered_logs
+			)
 	if is_instance_valid(_body):
 		_body.collision_layer = 1
 
 
 func deliver_log() -> bool:
-	if not needs_log():
+	if delivered_logs >= REQUIRED_LOGS:
 		return false
 	_add_support_post(CORNERS[delivered_logs])
 	delivered_logs += 1
-	_update_label()
 	set_planning_visible(_planning_visible)
 	return true
 
@@ -82,14 +121,27 @@ func _create_preview() -> void:
 		add_child(branch)
 		_assignment_branches.append(branch)
 
-	_label = Label3D.new()
-	_label.position = Vector3(0.0, 1.5, 0.0)
-	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_label.font_size = 48
-	_label.outline_size = 8
-	add_child(_label)
+	var planned_material := StandardMaterial3D.new()
+	planned_material.albedo_color = Color(
+		Palette.PLACEMENT_ALLOWED.r,
+		Palette.PLACEMENT_ALLOWED.g,
+		Palette.PLACEMENT_ALLOWED.b,
+		0.5
+	)
+	planned_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	planned_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	planned_material.roughness = 1.0
+	for post_index in CORNERS.size():
+		var planned_post := MeshInstance3D.new()
+		planned_post.name = "PlannedSupportPost%d" % (post_index + 1)
+		planned_post.mesh = _support_post_mesh(CORNERS[post_index], post_index)
+		planned_post.material_override = planned_material
+		planned_post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(planned_post)
+		_planned_posts.append(planned_post)
+
 	_create_collision()
-	_update_label()
+	set_planning_visible(_planning_visible)
 
 
 func speech_anchor_world_position() -> Vector3:
@@ -104,8 +156,44 @@ func planned_component_count() -> int:
 	return REQUIRED_LOGS - delivered_logs
 
 
+func construction_recipe() -> Dictionary:
+	return {"log": REQUIRED_LOGS}
+
+
+func installed_resource_counts() -> Dictionary:
+	return {"log": delivered_logs}
+
+
+func labour_seconds_by_resource() -> Dictionary:
+	return {"log": LOG_INSTALLATION_SECONDS}
+
+
+func deconstruction_resource_snapshot() -> Dictionary:
+	# Only installed Logs belong to the Building. Reserved or carried Logs are
+	# returned by the Citizen task-cancellation path instead.
+	return {"log": delivered_logs} if delivered_logs > 0 else {}
+
+
+func hover_text() -> String:
+	if is_planned():
+		return UIText.text(
+			UIText.SUPPORT_MATERIAL_PROGRESS_TEXT,
+			[delivered_logs, REQUIRED_LOGS]
+		)
+	return UIText.text(UIText.SUPPORT_NAME_TEXT)
+
+
 func _add_support_post(corner: Vector3) -> void:
 	var post_index := delivered_logs
+	var post := MeshInstance3D.new()
+	post.name = "FacetedSupportPost%d" % (post_index + 1)
+	post.mesh = _support_post_mesh(corner, post_index)
+	post.material_override = WoodVisual.binary_material(Palette.ROOF_LOG)
+	post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	add_child(post)
+
+
+func _support_post_mesh(corner: Vector3, post_index: int) -> ArrayMesh:
 	var post_tool := SurfaceTool.new()
 	post_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var post_end := corner + Vector3(
@@ -124,12 +212,7 @@ func _add_support_post(corner: Vector3) -> void:
 		6
 	)
 	post_tool.generate_normals()
-	var post := MeshInstance3D.new()
-	post.name = "FacetedSupportPost%d" % (post_index + 1)
-	post.mesh = post_tool.commit()
-	post.material_override = WoodVisual.binary_material(Palette.ROOF_LOG)
-	post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	add_child(post)
+	return post_tool.commit()
 
 
 func _create_collision() -> void:
@@ -156,10 +239,3 @@ func _add_mesh(mesh: Mesh, color: Color, local_position: Vector3, unshaded: bool
 	instance.material_override = material
 	add_child(instance)
 	return instance
-
-
-func _update_label() -> void:
-	_label.text = UIText.text(
-		UIText.SUPPORT_MATERIAL_PROGRESS_TEXT,
-		[delivered_logs, REQUIRED_LOGS]
-	)

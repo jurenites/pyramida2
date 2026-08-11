@@ -40,11 +40,33 @@ static func build_route(
 	half_extent: float,
 	approach_solid_target: bool
 ) -> Array[Vector3]:
+	var region := Rect2i(
+		Vector2i(-int(half_extent), -int(half_extent)),
+		Vector2i(int(half_extent * 2.0), int(half_extent * 2.0))
+	)
+	return build_route_in_region(
+		start_position,
+		target_position,
+		blocked_cells,
+		region,
+		approach_solid_target
+	)
+
+
+static func build_route_in_region(
+	start_position: Vector3,
+	target_position: Vector3,
+	blocked_cells: Dictionary,
+	region: Rect2i,
+	approach_solid_target: bool
+) -> Array[Vector3]:
 	var start_cell := world_cell(start_position)
 	var target_cell := world_cell(target_position)
 	var route_blockers := blocked_cells.duplicate()
 	route_blockers.erase(start_cell)
-	var astar := _create_astar(half_extent, route_blockers)
+	if not region.has_point(start_cell) or not region.has_point(target_cell):
+		return []
+	var astar := _create_astar_for_region(region, route_blockers)
 	var reachable_cells := _reachable_cells(start_cell, route_blockers, astar.region)
 	var candidates := _target_candidates(
 		target_cell,
@@ -88,11 +110,18 @@ static func build_direct_route(route_start: Vector3, route_end: Vector3) -> Arra
 
 
 static func _create_astar(half_extent: float, blocked_cells: Dictionary) -> AStarGrid2D:
-	var astar := AStarGrid2D.new()
-	astar.region = Rect2i(
+	return _create_astar_for_region(
+		Rect2i(
 		Vector2i(-int(half_extent), -int(half_extent)),
 		Vector2i(int(half_extent * 2.0), int(half_extent * 2.0))
+		),
+		blocked_cells
 	)
+
+
+static func _create_astar_for_region(region: Rect2i, blocked_cells: Dictionary) -> AStarGrid2D:
+	var astar := AStarGrid2D.new()
+	astar.region = region
 	astar.cell_size = Vector2.ONE
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
 	astar.update()

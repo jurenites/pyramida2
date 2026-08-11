@@ -1,8 +1,23 @@
 # Pyramida 2 — Semi-Infinite World, Streaming, and Persistence
 
-Status: approved and implementation-ready design contract. Implementation is deliberately deferred to the next dedicated world-streaming milestone; the current 64×64 prototype remains the regression fixture until that work begins.
+Status: current surface-streaming summary plus an explicitly planned persistence model. Code and passing tests are authoritative.
 
-The architecture and implementation order are considered solid enough to build without another design pass. Open tuning values remain configurable and do not block the first milestone.
+Only the “Implemented surface milestone” list below describes current behaviour. Sections describing disk saves, vertical columns, biome latitude, Forecast rings, and outside settlements are future contracts, not existing systems.
+
+The original 64×64 generated layout remains the origin regression fixture, but it is no longer a movement, camera, fog, grass, ground, or navigation boundary.
+
+Implemented surface milestone:
+
+- Deterministic versioned generation addressed by signed integer chunk coordinates.
+- 16×16 World Unit ground and fog chunks loaded within the current fixed presentation radius around Citizens and the camera.
+- No horizontal Citizen or camera clamp.
+- Navigation limited to the connected loaded-chunk component instead of a world-sized rectangle.
+- Per-chunk fog images with persistent sparse discovery coordinates.
+- Per-chunk grass candidate creation and disposal.
+- Deterministic resource entities outside the origin fixture.
+- Distant chunk unloading, regenerated untouched entities, in-memory state overlays for changed entities, and removal tombstones.
+
+The state overlay is runtime-only. The current `Quit` button exits without serializing chunk deltas; there is no Save-and-Quit implementation yet.
 
 This document defines a horizontally unbounded world with a fixed vertical range. The player does not choose a map width when starting a game. The explored world becomes only as large as the player makes it through Citizen movement.
 
@@ -76,13 +91,13 @@ Generated terrain and entities are not copied into the save merely because they 
 
 Fog discovery is horizontally driven. A Citizen moving north, south, east, or west reveals new horizontal territory whether the Citizen is at height 1, 150, or 255.
 
-The current four-World-Unit reveal radius remains the initial value. Discovery is stored on the 0.5×0.5 Sub-Unit grid and partitioned by chunk instead of stored in one world-sized texture. Each explored chunk owns a compact binary discovery mask. Empty all-hidden chunks have no stored mask; all-visible masks may use a compact sentinel rather than a full bitmap.
+The current four-World-Unit reveal radius is stored on the 0.5×0.5 Sub-Unit grid and partitioned by chunk instead of one world-sized texture. The running session currently keeps sparse revealed-cell Dictionaries; compressed masks and all-visible sentinels are planned disk-format optimizations, not implemented storage.
 
 Horizontal discovery does not mean complete underground knowledge. It allows the game to generate and show the surface, open air, and other features that are visibly exposed from the discovered area. Covered underground cells remain unmaterialized and absent from the save until digging, a cave opening, a cutaway view, or another later visibility rule exposes them.
 
 If an underground cell is first exposed on Day 200, its untouched base material is generated from the original world seed and coordinate. World age may affect entities or processes, but must not silently change the coordinate's original geology.
 
-## 6. Sparse save model
+## 6. Planned sparse save model
 
 The save is a sparse overlay over the deterministic base world. It does not contain a rectangular copy of every explored chunk and does not contain untouched hidden underground voxels.
 
@@ -108,7 +123,7 @@ An empty discovered surface with no changes therefore costs approximately one co
 
 Generated grass blades, cloud positions, bird flock formations, and other presentation-only detail are rebuilt rather than saved. If birds later gain persistent nests, injuries, ownership, cargo, or other gameplay state, those particular entities cross the boundary into sparse persistent data.
 
-## 7. Saving change without storing an eternal history
+## 7. Planned disk-save lifecycle
 
 Normal loading needs the current authoritative state, not every action since Day 1. The persistence path uses:
 
@@ -120,7 +135,7 @@ This preserves recent changes safely without making every save grow forever. A c
 
 A save operation writes to a temporary file, validates its header and chunk index, then atomically replaces the previous primary save while retaining at least one recoverable previous snapshot.
 
-## 8. Streaming rings
+## 8. Planned streaming rings
 
 Streaming uses multiple configurable distances around relevant Citizens rather than one `loaded/not loaded` boundary:
 
@@ -136,7 +151,7 @@ The initial outside-settlement coarse-simulation radius is provisionally 100 Wor
 
 The Forecast ring must be larger than the Presentation ring. It predicts required chunks from every Citizen's position, current route, and maximum travel speed. Generation and loading are queued before entry. A Citizen may not enter an unready chunk; if preparation falls behind, simulation slows or pauses at the safe boundary rather than exposing missing terrain or inventing nondeterministic data.
 
-## 9. Outside settlements and world age
+## 9. Planned outside settlements and world age
 
 The seed may define potential outside-settlement sites without instantiating every city in the infinite world. A site begins detailed or coarse simulation only after entering the configured simulation or Forecast ring.
 
@@ -154,7 +169,7 @@ When a previously simulated region is far away, detailed state may be reduced to
 
 The exact decisions made by outside settlements, their construction rules, and whether the player can disable or change their simulation are deliberately deferred. This document defines when and how their state is prepared and persisted, not their behavioural doctrine.
 
-## 10. Configuration boundaries
+## 10. Planned configuration boundaries
 
 The following values belong in named world-streaming and simulation profiles so later playtests can change them without rewriting persistence code:
 
@@ -170,29 +185,26 @@ Values that affect generated base truth are copied into the save's generator pro
 
 ## 11. Next implementation milestone
 
-This is the next approved major engineering milestone after the current gameplay and visual batch. Its first build slice is intentionally bounded:
+The first build slice is complete:
 
-- Introduce 16×16 horizontal chunk addresses and ownership.
-- Add a versioned, random-access world seed query.
-- Stream a small surface-only chunk ring around every Citizen.
-- Remove the fixed Citizen and camera boundary only when the destination chunk is ready.
-- Partition fog discovery and navigation by loaded chunks.
-- Keep the existing 64×64 generated layout as a regression fixture during the transition.
+- Introduced 16×16 horizontal chunk addresses and ownership.
+- Added a versioned, random-access world seed query.
+- Streamed a small surface-only chunk ring around every Citizen and the viewed area.
+- Removed the fixed Citizen and camera boundary while keeping unready gaps non-navigable.
+- Partitioned fog discovery, grass, and navigation by loaded chunks.
+- Kept the existing 64×64 generated layout as the origin regression fixture.
 
 Underground materialization, outside-city behaviour, and complete save-journal compaction are not prerequisites for proving this first semi-infinite traversal slice.
 
-### 11.1 Implementation sequence
+### 11.1 Remaining implementation sequence
 
-1. Replace world-sized coordinates and fog assumptions with chunk-local addresses while keeping the current 64×64 content as a test fixture.
-2. Add a versioned random-access generator and prove that chunk results are independent of visit order.
-3. Store per-chunk discovery masks and stream an empty/surface-only neighbouring chunk when a Citizen approaches any horizontal edge at several test heights.
-4. Add sparse terrain/entity deltas and save/load round-trip tests, including removed generated entities.
-5. Add the snapshot, short journal, atomic replacement, and previous-save recovery path; only then enable Save-and-Quit.
-6. Add biome latitude and transition generation.
-7. Add underground materialization only when cells become visible.
-8. Add configurable simulation and Forecast rings with placeholder outside-settlement summaries before implementing city behaviour.
+1. Persist the existing runtime terrain/entity deltas and tombstones to disk, with save/load round-trip tests.
+2. Add snapshot validation, a short journal, atomic replacement, and previous-save recovery before introducing Save-and-Quit.
+3. Add biome latitude and transition generation.
+4. Add underground materialization only when cells become visible.
+5. Add configurable simulation and Forecast rings with placeholder outside-settlement summaries before implementing city behaviour.
 
-## 12. Acceptance checks
+## 12. Target acceptance checks
 
 1. Travelling east for 1,000 World Units does not allocate a 2,000-World-Unit-wide rectangular world.
 2. Visiting chunks in different orders produces byte-equivalent base generation for the same seed, generator version, and coordinates.

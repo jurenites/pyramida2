@@ -1,7 +1,9 @@
 class_name SpeechBubbleOverlay
 extends CanvasLayer
 
-const PixelUI = preload("res://scripts/pixel_ui.gd")
+const UIVisualTokens = preload("res://scripts/ui_visual_tokens.gd")
+
+const PixelUITheme = preload("res://scripts/pixel_ui.gd")
 
 const IconLibrary = preload("res://scripts/speech_icon_library.gd")
 const Palette = preload("res://scripts/game_palette.gd")
@@ -110,34 +112,21 @@ func _bubble_for_message(message: Dictionary) -> Control:
 
 func _create_bubble(message: Dictionary) -> Control:
 	var short_text := str(message.get("short_text", ""))
-	var actor_count := int(message.get("actor_count", 1))
 	var bubble_width := 26.0
 	if not short_text.is_empty():
 		bubble_width += minf(36.0, float(short_text.length() * 5 + 3))
-	if actor_count > 1:
-		bubble_width += 16.0
 
 	var bubble := Control.new()
 	bubble.name = "ActorSpeechBubble"
 	bubble.size = Vector2(bubble_width, BUBBLE_HEIGHT + BUBBLE_TAIL_HEIGHT)
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var tail_outline := Polygon2D.new()
-	tail_outline.name = "TailOutline"
-	tail_outline.polygon = PackedVector2Array([
-		Vector2(bubble_width * 0.5 - 4.0, BUBBLE_HEIGHT - 1.0),
-		Vector2(bubble_width * 0.5 + 4.0, BUBBLE_HEIGHT - 1.0),
-		Vector2(bubble_width * 0.5, BUBBLE_HEIGHT + BUBBLE_TAIL_HEIGHT),
-	])
-	tail_outline.color = Color.BLACK
-	tail_outline.z_index = -2
-	bubble.add_child(tail_outline)
 	var tail_fill := Polygon2D.new()
 	tail_fill.name = "TailFill"
 	tail_fill.polygon = PackedVector2Array([
-		Vector2(bubble_width * 0.5 - 2.0, BUBBLE_HEIGHT - 1.0),
-		Vector2(bubble_width * 0.5 + 2.0, BUBBLE_HEIGHT - 1.0),
-		Vector2(bubble_width * 0.5, BUBBLE_HEIGHT + 2.0),
+		Vector2(bubble_width * 0.5 - 4.0, BUBBLE_HEIGHT - 1.0),
+		Vector2(bubble_width * 0.5 + 4.0, BUBBLE_HEIGHT - 1.0),
+		Vector2(bubble_width * 0.5, BUBBLE_HEIGHT + BUBBLE_TAIL_HEIGHT),
 	])
 	tail_fill.color = _bubble_background(message)
 	tail_fill.z_index = -1
@@ -149,11 +138,6 @@ func _create_bubble(message: Dictionary) -> Control:
 	bubble_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bubble_style := StyleBoxFlat.new()
 	bubble_style.bg_color = _bubble_background(message)
-	bubble_style.border_color = Color.BLACK
-	bubble_style.border_width_left = 1
-	bubble_style.border_width_top = 1
-	bubble_style.border_width_right = 1
-	bubble_style.border_width_bottom = 1
 	bubble_style.corner_radius_top_left = 7
 	bubble_style.corner_radius_top_right = 7
 	bubble_style.corner_radius_bottom_left = 7
@@ -173,25 +157,13 @@ func _create_bubble(message: Dictionary) -> Control:
 	var text_label := Label.new()
 	text_label.name = "ShortText"
 	text_label.position = Vector2(22.0, 2.0)
-	text_label.size = Vector2(maxf(0.0, bubble_width - 40.0), 18.0)
+	text_label.size = Vector2(maxf(0.0, bubble_width - 24.0), 18.0)
 	text_label.add_theme_color_override("font_color", Color.BLACK)
-	text_label.add_theme_font_size_override("font_size", 9)
-	PixelUI.apply(text_label)
+	text_label.add_theme_font_size_override("font_size", UIVisualTokens.SPEECH_BUBBLE_TEXT_FONT_SIZE)
+	PixelUITheme.apply(text_label)
 	text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	text_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bubble.add_child(text_label)
-
-	var count_label := Label.new()
-	count_label.name = "ActorCount"
-	count_label.position = Vector2(bubble_width - 18.0, 3.0)
-	count_label.size = Vector2(16.0, 16.0)
-	count_label.add_theme_color_override("font_color", Color.BLACK)
-	count_label.add_theme_font_size_override("font_size", 8)
-	PixelUI.apply(count_label)
-	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bubble.add_child(count_label)
 
 	_update_bubble_content(bubble, message)
 	return bubble
@@ -200,7 +172,6 @@ func _create_bubble(message: Dictionary) -> Control:
 func _update_bubble_content(bubble: Control, message: Dictionary) -> void:
 	var icon := bubble.get_node("MessageIcon") as TextureRect
 	var text_label := bubble.get_node("ShortText") as Label
-	var count_label := bubble.get_node("ActorCount") as Label
 	var tail_fill := bubble.get_node("TailFill") as Polygon2D
 	var bubble_panel := bubble.get_node("BubblePanel") as Panel
 	var bubble_style := bubble_panel.get_theme_stylebox("panel") as StyleBoxFlat
@@ -210,8 +181,6 @@ func _update_bubble_content(bubble: Control, message: Dictionary) -> void:
 		bubble_style.bg_color = background_colour
 	icon.texture = IconLibrary.texture(str(message.get("icon", "walk")))
 	text_label.text = str(message.get("short_text", ""))
-	var actor_count := int(message.get("actor_count", 1))
-	count_label.text = "×%d" % actor_count if actor_count > 1 else ""
 
 
 func _bubble_background(message: Dictionary) -> Color:

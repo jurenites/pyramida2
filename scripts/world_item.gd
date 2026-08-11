@@ -1,16 +1,21 @@
 class_name WorldItem
 extends Node3D
 
+const LIMESTONE_SHADER := preload("res://shaders/limestone.gdshader")
+
 const Palette = preload("res://scripts/game_palette.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
 const DeterministicRandomScript = preload("res://scripts/deterministic_random.gd")
 
 const TREE_SEGMENT_HEIGHT := 1.0
-const LOOSE_LOG_LENGTH := 0.92
+const LOOSE_LOG_LENGTH := WoodVisual.LOG_LENGTH
 const TREE_INITIAL_LOG_MINIMUM := 2
 const TREE_INITIAL_LOG_VARIATION := 2
 const TREE_MAX_LOG_COUNT := 3
-const TREE_GROWTH_INTERVAL := 30.0
+const TREE_GROWTH_INTERVAL_DAYS := 3
+const SIMULATION_DAY_SECONDS := 360.0
+const TREE_GROWTH_INTERVAL := SIMULATION_DAY_SECONDS * TREE_GROWTH_INTERVAL_DAYS
+const TREE_GROWTH_STEP_HEIGHT := 1.0
 const BUSH_REGROWTH_SECONDS := 720.0
 const TREE_SIDE_COUNT := 6
 const TREE_ROOT_SIDE_COUNT := 4
@@ -51,7 +56,7 @@ func configure(next_kind: String, detail_seed := 1) -> void:
 		else:
 			tree_log_count = TREE_INITIAL_LOG_MINIMUM + permanent_detail_seed % TREE_INITIAL_LOG_VARIATION
 			tree_growth_height = float(tree_log_count)
-		_tree_growth_remaining = TREE_GROWTH_INTERVAL * (0.65 + _seed_fraction(0, 91) * 0.7)
+		_tree_growth_remaining = TREE_GROWTH_INTERVAL
 	water_stored = 1 if item_kind == "cactus" else 0
 	# Loose Logs may face either horizontal cardinal axis, but never settle at an
 	# arbitrary diagonal. Rotating the WorldItem keeps its mesh and collision
@@ -130,6 +135,51 @@ func can_harvest() -> bool:
 	return item_kind == "bush" and _cooldown <= 0.0
 
 
+func stream_state() -> Dictionary:
+	return {
+		"kind": item_kind,
+		"detail_seed": permanent_detail_seed,
+		"tree_log_count": tree_log_count,
+		"tree_growth_height": tree_growth_height,
+		"tree_top_present": tree_top_present,
+		"water_stored": water_stored,
+		"cooldown": _cooldown,
+		"tree_growth_remaining": _tree_growth_remaining,
+		"stump_uses_palm_colour": _stump_uses_palm_colour,
+		"rotation_y": rotation.y,
+	}
+
+
+func restore_stream_state(state: Dictionary) -> void:
+	item_kind = str(state.get("kind", item_kind))
+	permanent_detail_seed = int(state.get("detail_seed", permanent_detail_seed))
+	tree_log_count = int(state.get("tree_log_count", tree_log_count))
+	tree_growth_height = float(state.get("tree_growth_height", tree_growth_height))
+	tree_top_present = bool(state.get("tree_top_present", tree_top_present))
+	water_stored = int(state.get("water_stored", water_stored))
+	_cooldown = float(state.get("cooldown", _cooldown))
+	_tree_growth_remaining = float(state.get("tree_growth_remaining", _tree_growth_remaining))
+	_stump_uses_palm_colour = bool(state.get("stump_uses_palm_colour", _stump_uses_palm_colour))
+	rotation.y = float(state.get("rotation_y", rotation.y))
+	if is_inside_tree():
+		_rebuild_visual()
+
+
+func advance_generated_age(age_seconds: float) -> void:
+	_advance_tree_growth(age_seconds)
+
+
+func advance_stream_time(elapsed_seconds: float) -> void:
+	if elapsed_seconds <= 0.0:
+		return
+	if item_kind == "bush" and _cooldown > 0.0:
+		_cooldown = maxf(0.0, _cooldown - elapsed_seconds)
+		if is_instance_valid(_berries_visual):
+			_berries_visual.visible = _cooldown <= 0.0
+	elif _can_grow_tree():
+		_advance_tree_growth(elapsed_seconds)
+
+
 func set_limestone_cycle(daylight: float, surface_colour: Color, sun_direction: Vector3) -> void:
 	if item_kind != "stone" or not is_instance_valid(_limestone_material):
 		return
@@ -148,6 +198,16 @@ func take_for_carry() -> bool:
 	return true
 
 
+func release_from_carry(world_position: Vector3) -> void:
+	if item_kind != "log" or not is_carried:
+		return
+	is_carried = false
+	global_position = world_position
+	visible = true
+	if _body != null:
+		_body.collision_layer = 1
+
+
 func _process(delta: float) -> void:
 	_sway_elapsed += delta
 	var simulation_delta := delta * _simulation_speed
@@ -162,17 +222,43 @@ func _process(delta: float) -> void:
 		_visual_root.rotation.x = sway * 0.014
 		_visual_root.rotation.z = cross_sway * 0.018
 
-	if (
-		item_kind != "tree"
-		or not tree_top_present
-		or tree_growth_height >= float(TREE_MAX_LOG_COUNT)
-	):
+	if _can_grow_tree():
+		_advance_tree_growth(simulation_delta)
+
+
+func _can_grow_tree() -> bool:
+	if item_kind == "stump":
+		return true
+	return (
+		item_kind in ["tree", "palm_tree"]
+		and tree_top_present
+		and tree_growth_height < float(TREE_MAX_LOG_COUNT)
+	)
+
+
+func _advance_tree_growth(elapsed_seconds: float) -> void:
+	if elapsed_seconds <= 0.0 or not _can_grow_tree():
 		return
-	_tree_growth_remaining -= simulation_delta
-	if _tree_growth_remaining <= 0.0:
-		tree_growth_height = minf(float(TREE_MAX_LOG_COUNT), tree_growth_height + 0.5)
-		tree_log_count = ceili(tree_growth_height)
+	var remaining_age := elapsed_seconds
+	var visual_changed := false
+	while _can_grow_tree() and remaining_age >= _tree_growth_remaining:
+		remaining_age -= _tree_growth_remaining
+		if item_kind == "stump":
+			item_kind = "palm_tree" if _stump_uses_palm_colour else "tree"
+			tree_growth_height = TREE_GROWTH_STEP_HEIGHT
+			tree_log_count = 1
+			tree_top_present = true
+		else:
+			tree_growth_height = minf(
+				float(TREE_MAX_LOG_COUNT),
+				tree_growth_height + TREE_GROWTH_STEP_HEIGHT
+			)
+			tree_log_count = ceili(tree_growth_height)
 		_tree_growth_remaining = TREE_GROWTH_INTERVAL
+		visual_changed = true
+	if _can_grow_tree():
+		_tree_growth_remaining = maxf(0.0, _tree_growth_remaining - remaining_age)
+	if visual_changed and is_inside_tree():
 		_rebuild_visual()
 
 
@@ -618,34 +704,7 @@ func _build_stone() -> void:
 
 func _limestone_surface_material() -> ShaderMaterial:
 	var material := ShaderMaterial.new()
-	var shader := Shader.new()
-	shader.code = """
-shader_type spatial;
-render_mode unshaded;
-
-uniform vec4 top_color : source_color;
-uniform vec4 side_color : source_color;
-uniform vec3 sun_direction_world = vec3(0.0, 1.0, 0.0);
-uniform float daylight = 1.0;
-varying vec3 world_normal;
-
-void vertex() {
-	world_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
-}
-
-void fragment() {
-	float is_top = step(0.7, world_normal.y);
-	float sun_facing = max(dot(normalize(world_normal), normalize(sun_direction_world)), 0.0);
-	float side_band = 0.68;
-	side_band += 0.16 * step(0.18, sun_facing);
-	side_band += 0.16 * step(0.62, sun_facing);
-	float night_factor = mix(0.58, 1.0, daylight);
-	vec3 shaded_side = side_color.rgb * side_band * night_factor;
-	ALBEDO = mix(shaded_side, top_color.rgb, is_top);
-	ROUGHNESS = 0.92;
-}
-"""
-	material.shader = shader
+	material.shader = LIMESTONE_SHADER
 	material.set_shader_parameter("top_color", Palette.SAND_SURFACE)
 	material.set_shader_parameter("side_color", Palette.LIMESTONE_SIDE)
 	material.set_shader_parameter("daylight", 1.0)
@@ -728,13 +787,17 @@ func _build_log() -> void:
 	# dropped Log reads as the removed tree segment rather than a smooth cylinder.
 	var log_tool := SurfaceTool.new()
 	log_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var log_start := Vector3(-LOOSE_LOG_LENGTH * 0.5, 0.15, -0.015)
-	var log_end := Vector3(
-		LOOSE_LOG_LENGTH * 0.5,
-		0.15 + _seed_signed(0, 173) * 0.045,
-		0.015 + _seed_signed(0, 179) * 0.045
+	# A loose Log rests level on the ground at its full physical size. Its seeded
+	# WorldItem rotation still chooses either cardinal horizontal direction.
+	var log_start := Vector3(-LOOSE_LOG_LENGTH * 0.5, WoodVisual.LOG_START_RADIUS, 0.0)
+	var log_end := Vector3(LOOSE_LOG_LENGTH * 0.5, WoodVisual.LOG_START_RADIUS, 0.0)
+	_append_tapered_cylinder(
+		log_tool,
+		log_start,
+		log_end,
+		WoodVisual.LOG_START_RADIUS,
+		WoodVisual.LOG_END_RADIUS
 	)
-	_append_tapered_cylinder(log_tool, log_start, log_end, 0.145, 0.105)
 	log_tool.generate_normals()
 	var log_instance := MeshInstance3D.new()
 	log_instance.mesh = log_tool.commit()

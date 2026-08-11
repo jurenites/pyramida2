@@ -1,10 +1,13 @@
 extends Node3D
 
+const GRASS_SHADER := preload("res://shaders/grass.gdshader")
+
 const DeterministicRandomScript = preload("res://scripts/deterministic_random.gd")
 
 const Palette = preload("res://scripts/game_palette.gd")
 
 const CHUNK_SIZE := 8
+const STREAM_CHUNK_SIZE := 16
 const TUFTS_PER_WORLD_UNIT := 6
 const MAX_RENDER_DISTANCE := 20.0
 const BILLBOARD_CULL_PADDING := 0.5
@@ -29,11 +32,66 @@ func setup(
 	_excluded_world_units = excluded_world_units.duplicate()
 	_tuft_mesh = _create_tuft_mesh()
 	_grass_material = _create_grass_material()
-	_build_chunk_candidates()
+	if _world_half_extent > 0.0:
+		_build_chunk_candidates()
 
 
 func has_grass_in_world_unit(world_unit: Vector2i) -> bool:
 	return _world_unit_has_grass(world_unit.x, world_unit.y)
+
+
+func exclude_world_unit(world_unit: Vector2i) -> void:
+	_excluded_world_units[world_unit] = true
+	_rebuild_chunk(_chunk_coordinate(world_unit))
+
+
+static func generated_grass_at(world_unit: Vector2i) -> bool:
+	if abs(world_unit.x) <= 3 and abs(world_unit.y) <= 3:
+		return true
+	var patch_value := (
+		sin(float(world_unit.x) * 0.37)
+		+ cos(float(world_unit.y) * 0.31)
+		+ sin(float(world_unit.x + world_unit.y) * 0.17)
+	)
+	return patch_value > 1.05
+
+
+func load_world_chunk(stream_chunk: Vector2i, excluded_world_units: Dictionary) -> void:
+	for excluded_world_unit in excluded_world_units:
+		_excluded_world_units[excluded_world_unit] = true
+	var stream_origin := stream_chunk * STREAM_CHUNK_SIZE
+	var affected_grass_chunks: Dictionary = {}
+	for local_x in STREAM_CHUNK_SIZE:
+		for local_z in STREAM_CHUNK_SIZE:
+			var world_unit := stream_origin + Vector2i(local_x, local_z)
+			if not _world_unit_has_grass(world_unit.x, world_unit.y):
+				continue
+			_append_world_unit_candidates(world_unit)
+			affected_grass_chunks[_chunk_coordinate(world_unit)] = true
+	for grass_chunk in affected_grass_chunks:
+		_rebuild_chunk(grass_chunk)
+
+
+func unload_world_chunk(stream_chunk: Vector2i) -> void:
+	var grass_chunks_per_stream_chunk := int(STREAM_CHUNK_SIZE / CHUNK_SIZE)
+	var first_grass_chunk := stream_chunk * grass_chunks_per_stream_chunk
+	for local_x in grass_chunks_per_stream_chunk:
+		for local_z in grass_chunks_per_stream_chunk:
+			var grass_chunk := first_grass_chunk + Vector2i(local_x, local_z)
+			_chunk_candidates.erase(grass_chunk)
+			if _chunk_instances.has(grass_chunk):
+				var instance := _chunk_instances[grass_chunk] as MultiMeshInstance3D
+				if is_instance_valid(instance):
+					instance.queue_free()
+				_chunk_instances.erase(grass_chunk)
+	var stream_bounds := Rect2i(stream_chunk * STREAM_CHUNK_SIZE, Vector2i(STREAM_CHUNK_SIZE, STREAM_CHUNK_SIZE))
+	var exclusions_to_remove: Array[Vector2i] = []
+	for world_unit_value in _excluded_world_units:
+		var world_unit: Vector2i = world_unit_value
+		if stream_bounds.has_point(world_unit):
+			exclusions_to_remove.append(world_unit)
+	for world_unit in exclusions_to_remove:
+		_excluded_world_units.erase(world_unit)
 
 
 func reveal_fog_cells(newly_revealed_cells: Array[Vector2i]) -> void:
@@ -71,49 +129,53 @@ func _build_chunk_candidates() -> void:
 		for world_z in range(-int(_world_half_extent), int(_world_half_extent)):
 			if not _world_unit_has_grass(world_x, world_z):
 				continue
-			var world_unit := Vector2i(world_x, world_z)
-			var chunk_coordinate := _chunk_coordinate(world_unit)
-			if not _chunk_candidates.has(chunk_coordinate):
-				_chunk_candidates[chunk_coordinate] = []
-			var candidates: Array = _chunk_candidates[chunk_coordinate]
-			# A scrambled Halton set gives every occupied World Unit even coverage
-			# without the rows and diagonal bands produced by independent hashes.
-			# Per-tile shifts, permutation, mirroring, and axis swaps prevent the same
-			# six-point silhouette from repeating across neighbouring tiles.
-			var tile_seed := _coordinate_seed(world_x, world_z, 193)
-			var sequence_offset := tile_seed % TUFTS_PER_WORLD_UNIT
-			var shift_x := _seed_fraction(tile_seed + 211)
-			var shift_z := _seed_fraction(tile_seed + 227)
-			var swap_axes := tile_seed % 2 == 0
-			var mirror_x := tile_seed % 3 == 0
-			var mirror_z := tile_seed % 5 == 0
-			for tuft_index in TUFTS_PER_WORLD_UNIT:
-				var seed_value := _coordinate_seed(world_x, world_z, tuft_index)
-				var sequence_index := 1 + (tuft_index + sequence_offset) % TUFTS_PER_WORLD_UNIT
-				var low_discrepancy_point := Vector2(
-					_radical_inverse(sequence_index, 2),
-					_radical_inverse(sequence_index, 3)
-				)
-				if swap_axes:
-					low_discrepancy_point = Vector2(low_discrepancy_point.y, low_discrepancy_point.x)
-				if mirror_x:
-					low_discrepancy_point.x = 1.0 - low_discrepancy_point.x
-				if mirror_z:
-					low_discrepancy_point.y = 1.0 - low_discrepancy_point.y
-				low_discrepancy_point.x = fposmod(low_discrepancy_point.x + shift_x, 1.0)
-				low_discrepancy_point.y = fposmod(low_discrepancy_point.y + shift_z, 1.0)
-				var local_x := 0.07 + low_discrepancy_point.x * 0.86
-				var local_z := 0.07 + low_discrepancy_point.y * 0.86
-				var scale_value := 0.78 + _seed_fraction(seed_value + 131) * 0.42
-				var origin := Vector3(world_x + local_x, 0.012, world_z + local_z)
-				var tuft_basis := Basis.IDENTITY.scaled(Vector3(scale_value, scale_value, scale_value))
-				candidates.append(Transform3D(tuft_basis, origin))
+			_append_world_unit_candidates(Vector2i(world_x, world_z))
+
+
+func _append_world_unit_candidates(world_unit: Vector2i) -> void:
+	var chunk_coordinate := _chunk_coordinate(world_unit)
+	if not _chunk_candidates.has(chunk_coordinate):
+		_chunk_candidates[chunk_coordinate] = []
+	var candidates: Array = _chunk_candidates[chunk_coordinate]
+	# A scrambled Halton set gives every occupied World Unit even coverage
+	# without the rows and diagonal bands produced by independent hashes.
+	var tile_seed := _coordinate_seed(world_unit.x, world_unit.y, 193)
+	var sequence_offset := tile_seed % TUFTS_PER_WORLD_UNIT
+	var shift_x := _seed_fraction(tile_seed + 211)
+	var shift_z := _seed_fraction(tile_seed + 227)
+	var swap_axes := tile_seed % 2 == 0
+	var mirror_x := tile_seed % 3 == 0
+	var mirror_z := tile_seed % 5 == 0
+	for tuft_index in TUFTS_PER_WORLD_UNIT:
+		var seed_value := _coordinate_seed(world_unit.x, world_unit.y, tuft_index)
+		var sequence_index := 1 + (tuft_index + sequence_offset) % TUFTS_PER_WORLD_UNIT
+		var low_discrepancy_point := Vector2(
+			_radical_inverse(sequence_index, 2),
+			_radical_inverse(sequence_index, 3)
+		)
+		if swap_axes:
+			low_discrepancy_point = Vector2(low_discrepancy_point.y, low_discrepancy_point.x)
+		if mirror_x:
+			low_discrepancy_point.x = 1.0 - low_discrepancy_point.x
+		if mirror_z:
+			low_discrepancy_point.y = 1.0 - low_discrepancy_point.y
+		low_discrepancy_point.x = fposmod(low_discrepancy_point.x + shift_x, 1.0)
+		low_discrepancy_point.y = fposmod(low_discrepancy_point.y + shift_z, 1.0)
+		var local_x := 0.07 + low_discrepancy_point.x * 0.86
+		var local_z := 0.07 + low_discrepancy_point.y * 0.86
+		var scale_value := 0.78 + _seed_fraction(seed_value + 131) * 0.42
+		var origin := Vector3(world_unit.x + local_x, 0.012, world_unit.y + local_z)
+		var tuft_basis := Basis.IDENTITY.scaled(Vector3(scale_value, scale_value, scale_value))
+		candidates.append(Transform3D(tuft_basis, origin))
 
 
 func _rebuild_chunk(chunk_coordinate: Vector2i) -> void:
 	var candidates: Array = _chunk_candidates.get(chunk_coordinate, [])
 	var visible_transforms: Array[Transform3D] = []
 	for candidate: Transform3D in candidates:
+		var candidate_world_unit := Vector2i(floori(candidate.origin.x), floori(candidate.origin.z))
+		if _excluded_world_units.has(candidate_world_unit):
+			continue
 		var fog_cell := Vector2i(
 			floori(candidate.origin.x / _fog_cell_size),
 			floori(candidate.origin.z / _fog_cell_size)
@@ -173,77 +235,14 @@ func _create_tuft_mesh() -> ArrayMesh:
 	return surface_tool.commit()
 
 
-func _add_billboard_vertex(surface_tool: SurfaceTool, position: Vector3, uv: Vector2) -> void:
+func _add_billboard_vertex(surface_tool: SurfaceTool, vertex_position: Vector3, uv: Vector2) -> void:
 	surface_tool.set_uv(uv)
-	surface_tool.add_vertex(position)
+	surface_tool.add_vertex(vertex_position)
 
 
 func _create_grass_material() -> ShaderMaterial:
-	var shader := Shader.new()
-	shader.code = """
-shader_type spatial;
-render_mode cull_back, depth_draw_opaque, unshaded;
-
-uniform vec4 grass_color : source_color;
-uniform float wind_strength = 0.022;
-uniform float wind_speed = 1.15;
-
-varying float instance_seed;
-
-float grass_hash(vec2 value) {
-	return fract(sin(dot(value, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-void vertex() {
-	vec3 instance_origin = MODEL_MATRIX[3].xyz;
-	instance_seed = grass_hash(instance_origin.xz);
-	float height_variation = mix(0.82, 1.18, grass_hash(instance_origin.xz + vec2(19.7)));
-	float width_variation = mix(0.8, 1.16, grass_hash(instance_origin.zx + vec2(31.3)));
-	VERTEX.y *= height_variation;
-	VERTEX.x *= width_variation;
-
-	float scale_x = length(MODEL_MATRIX[0].xyz);
-	float scale_y = length(MODEL_MATRIX[1].xyz);
-	float scale_z = length(MODEL_MATRIX[2].xyz);
-	vec3 camera_right = normalize(INV_VIEW_MATRIX[0].xyz);
-	vec3 world_up = vec3(0.0, 1.0, 0.0);
-	vec3 camera_forward = normalize(cross(camera_right, world_up));
-	mat4 billboard_model = mat4(
-		vec4(camera_right * scale_x, 0.0),
-		vec4(world_up * scale_y, 0.0),
-		vec4(camera_forward * scale_z, 0.0),
-		MODEL_MATRIX[3]
-	);
-	MODELVIEW_MATRIX = VIEW_MATRIX * billboard_model;
-	MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);
-}
-
-float blade_mask(vec2 uv, float centre, float lean, float height, float base_width, float tip_width, float wind) {
-	if (uv.y > height) {
-		return 0.0;
-	}
-	float blade_height = clamp(uv.y / height, 0.0, 1.0);
-	float blade_centre = centre + lean * blade_height + wind * blade_height * blade_height;
-	float half_width = mix(base_width, tip_width, smoothstep(0.0, 1.0, blade_height));
-	return step(abs(uv.x - blade_centre), half_width);
-}
-
-void fragment() {
-	float wave = sin(TIME * wind_speed + instance_seed * 12.0) * wind_strength;
-	float silhouette = 0.0;
-	silhouette = max(silhouette, blade_mask(UV, 0.2, -0.08, 0.62, 0.105, 0.026, wave));
-	silhouette = max(silhouette, blade_mask(UV, 0.4, -0.025, 0.9, 0.115, 0.026, wave));
-	silhouette = max(silhouette, blade_mask(UV, 0.61, 0.035, 0.76, 0.11, 0.025, wave));
-	silhouette = max(silhouette, blade_mask(UV, 0.79, 0.075, 0.57, 0.1, 0.024, wave));
-	if (silhouette < 0.5) {
-		discard;
-	}
-	ALBEDO = grass_color.rgb;
-	ROUGHNESS = 0.92;
-}
-"""
 	var material := ShaderMaterial.new()
-	material.shader = shader
+	material.shader = GRASS_SHADER
 	material.set_shader_parameter("grass_color", Palette.GRASS)
 	return material
 
@@ -251,14 +250,7 @@ void fragment() {
 func _world_unit_has_grass(world_x: int, world_z: int) -> bool:
 	if _excluded_world_units.has(Vector2i(world_x, world_z)):
 		return false
-	if abs(world_x) <= 3 and abs(world_z) <= 3:
-		return true
-	var patch_value := (
-		sin(float(world_x) * 0.37)
-		+ cos(float(world_z) * 0.31)
-		+ sin(float(world_x + world_z) * 0.17)
-	)
-	return patch_value > 1.05
+	return generated_grass_at(Vector2i(world_x, world_z))
 
 
 func _chunk_coordinate(world_unit: Vector2i) -> Vector2i:

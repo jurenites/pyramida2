@@ -7,21 +7,31 @@ const MessageCatalog = preload("res://scripts/actor_message_catalog.gd")
 const ActionCatalog = preload("res://scripts/gameplay_action_catalog.gd")
 const ActorMessageBusScript = preload("res://scripts/actor_message_bus.gd")
 const SpeechBubbleOverlayScript = preload("res://scripts/speech_bubble_overlay.gd")
-const PixelUI = preload("res://scripts/pixel_ui.gd")
-const BuildInfo = preload("res://scripts/build_info.gd")
+const PixelUITheme = preload("res://scripts/pixel_ui.gd")
+const BuildMetadata = preload("res://scripts/build_info.gd")
 const ExcavationSiteScript = preload("res://scripts/excavation_site.gd")
 const DeterministicRandomScript = preload("res://scripts/deterministic_random.gd")
 const GridNavigationScript = preload("res://scripts/grid_navigation.gd")
 const AppliedLabourScript = preload("res://scripts/applied_labour.gd")
 const LabourProgressBarScript = preload("res://scripts/labour_progress_bar.gd")
-const WORLD_HALF_EXTENT := 32.0
+const PileStorageScript = preload("res://scripts/pile_storage.gd")
+const TerrainBlockScript = preload("res://scripts/terrain_block.gd")
+const CitizenCommandOverlayScript = preload("res://scripts/citizen_command_overlay.gd")
+const WorldStreamerScript = preload("res://scripts/world_streamer.gd")
+const WorldGenerationProfileScript = preload("res://scripts/world_generation_profile.gd")
+const VisualTokens = preload("res://scripts/ui_visual_tokens.gd")
+const ToolbarIcons = preload("res://scripts/toolbar_icon_renderer.gd")
+const IconNumberScript = preload("res://scripts/icon_number.gd")
+const ConstructionInspectorScript = preload("res://scripts/construction_inspector.gd")
+const ConstructionProgressScript = preload("res://scripts/construction_progress.gd")
+const CompassWidgetScript = preload("res://scripts/compass_widget.gd")
+const TERRAIN_SHADER := preload("res://shaders/terrain.gdshader")
+const FOG_SHADER := preload("res://shaders/fog.gdshader")
+const PIXEL_FILTER_SHADER := preload("res://shaders/pixel_filter.gdshader")
 const BACKGROUND_HALF_EXTENT := 128.0
 const FOG_CELL_SIZE := 0.5
-const FOG_MASK_RESOLUTION := 128
 const REVEAL_RADIUS := 4.0
-const CAMERA_OFFSET := Vector3(12.0, 14.0, 12.0)
 const CAMERA_PAN_SPEED := 8.0
-const CAMERA_FOCUS_LIMIT := WORLD_HALF_EXTENT - 1.0
 const CAMERA_ROTATION_SENSITIVITY := 0.008
 const CAMERA_TILT_LIMIT := 0.174532925
 const DEFAULT_CAMERA_YAW := PI * 0.25
@@ -29,51 +39,55 @@ const DEFAULT_CAMERA_PITCH := 0.689775
 const CAMERA_DISTANCE := 22.0
 const CAMERA_MINIMUM_SIZE := 17.0
 const DEFAULT_CAMERA_SIZE := 34.0
-const CAMERA_MAXIMUM_SIZE := 48.0
-const CAMERA_ZOOM_STEP := 2.0
+const CAMERA_MAXIMUM_SIZE := DEFAULT_CAMERA_SIZE
+const CAMERA_ZOOM_STEP := 1.0
+const CAMERA_TRACKPAD_ZOOM_SCALE := 0.8
+const CAMERA_RESET_DURATION_SECONDS := 0.5
+const CITIZEN_CAMERA_MINIMUM_DURATION_SECONDS := 0.1
+const CITIZEN_CAMERA_MAXIMUM_DURATION_SECONDS := 0.5
 const SELECTION_DRAG_THRESHOLD := 6.0
 const PIXEL_BLOCK_SIZE := 2.0
 const SHOW_DEBUG_OVERLAY := false
+const CLOUDS_ENABLED := false
 const HOVER_REFRESH_INTERVAL := 0.08
 const HOVER_DELAY_SECONDS := 0.25
 const HOVER_FADE_SPEED := 5.0
-const DAY_LENGTH_SECONDS := 360.0
+const TOOLTIP_EDGE_THRESHOLD_PIXELS := 80.0
+const DAY_LENGTH_SECONDS := WorldItem.SIMULATION_DAY_SECONDS
 const SIMULATION_SPEED_OPTIONS := [1.0, 2.0, 4.0]
 const TREE_CUT_WORK_SECONDS := 3.0
 const EXCAVATION_WORK_SECONDS := 3.0
 const RESOURCE_WORK_SECONDS := 3.0
-const UI_OUTLINE_PIXELS := 2.0
-const CITIZEN_PATH_LINE_WIDTH_PIXELS := 2.0
-const CITIZEN_SELECTION_LINE_WIDTH_PIXELS := 2.0
-const CITIZEN_SELECTION_RADIUS_WORLD := 0.3168
-const CITIZEN_SELECTION_POINT_COUNT := 16
-const BUILDING_ICON_STROKE_PIXELS := 2.0
-const COMPASS_DIAMETER_PIXELS := 72
+const CONSTRUCTION_WORK_SECONDS := SupportConstructionSite.LOG_INSTALLATION_SECONDS
 const ONBOARDING_STATE_PATH := "user://onboarding.cfg"
+const WORLD_GENERATION_PROFILE_PATH := "user://world_generation_profile.json"
+const SUPPORT_FOOTPRINT_QUADRANT_OFFSETS: Array[Vector2] = [
+	Vector2(-0.25, -0.25),
+	Vector2(0.25, -0.25),
+	Vector2(0.25, 0.25),
+	Vector2(-0.25, 0.25),
+]
 
 var _camera: Camera3D
 var _sun: DirectionalLight3D
 var _environment: Environment
 var _ground_material: ShaderMaterial
-var _path_line: MultiMeshInstance3D
-var _path_mesh: BoxMesh
-var _path_multimesh: MultiMesh
-var _path_joint_line: MultiMeshInstance3D
-var _path_joint_mesh: CylinderMesh
-var _path_joint_multimesh: MultiMesh
-var _path_overlay_layer: CanvasLayer
-var _path_screen_lines: Array[Line2D] = []
-var _path_screen_targets: Array[Polygon2D] = []
-var _citizen_selection_screen_lines: Array[Line2D] = []
+var _world_chunks_root: Node3D
+var _world_generation_profile: WorldGenerationProfile
+var _loaded_chunks: Dictionary = {}
+var _chunk_fog_images: Dictionary = {}
+var _chunk_fog_textures: Dictionary = {}
+var _chunk_fog_materials: Dictionary = {}
+var _streamed_items_by_chunk: Dictionary = {}
+var _streamed_item_states: Dictionary = {}
+var _streamed_entity_tombstones: Dictionary = {}
+var _discovered_fog_by_chunk: Dictionary = {}
+var _citizen_command_overlay
 var _selected_world_object: Node3D
 var _selection_outline_root: MultiMeshInstance3D
 var _selection_outline_mesh: BoxMesh
 var _selected_ground_cell := Vector2i.ZERO
 var _has_selected_ground_cell := false
-var _fog_image: Image
-var _fog_texture: ImageTexture
-var _fog_instance: MeshInstance3D
-var _fog_material: ShaderMaterial
 var _grass_renderer: Node3D
 var _revealed_fog_cells: Dictionary = {}
 var _occupied_bush_world_units: Dictionary = {}
@@ -85,11 +99,26 @@ var _items: Array[WorldItem] = []
 var _construction_sites: Array[SupportConstructionSite] = []
 var _excavation_sites: Array[ExcavationSite] = []
 var _excavated_cells: Dictionary = {}
+var _excavated_pit_roots: Dictionary = {}
+var _terrain_blocks: Dictionary = {}
+var _starting_pile: PileStorage
 var _build_mode := false
+var _greenery_mode := false
+var _selected_greenery: WorldItem
+var _landscape_mode := false
+var _landscape_tool := "remove"
 var _placing_support := false
 var _placing_excavation := false
+var _removing_buildings := false
 var _selected_building: SupportConstructionSite
 var _support_placement_preview: SupportConstructionSite
+var _support_preview_geometry: Array[GeometryInstance3D] = []
+var _support_preview_quadrants: Array[MeshInstance3D] = []
+var _support_preview_allowed_material: StandardMaterial3D
+var _support_preview_blocked_material: StandardMaterial3D
+var _deconstruction_hover_target: Node3D
+var _deconstruction_original_materials: Dictionary = {}
+var _deconstruction_preview_material: StandardMaterial3D
 var _calories := 0
 var _water := 0
 var _ui_status: Label
@@ -101,11 +130,18 @@ var _goods_count_badge: Label
 var _toolbar_tooltip: PanelContainer
 var _toolbar_tooltip_label: Label
 var _top_toolbar: HBoxContainer
-var _population_count_label: Label
+var _population_icon_number: IconNumber
+var _pile_inventory_row: HBoxContainer
+var _pile_inventory_signature := ""
 var _building_button: Button
+var _greenery_button: Button
+var _landscape_button: Button
 var _simulation_speed_button: Button
-var _deconstruct_button: Button
+var _remove_building_button: Button
 var _build_menu: PanelContainer
+var _landscape_menu: PanelContainer
+var _landscape_add_button: Button
+var _landscape_remove_button: Button
 var _hover_tooltip: Label
 var _cursor_texture: ImageTexture
 var _hover_refresh_remaining := 0.0
@@ -122,6 +158,7 @@ var _building_hotkey_hint_label: Label
 var _building_rotation_tween: Tween
 var _day_night_wheel: TextureRect
 var _world_progress_layer: CanvasLayer
+var _construction_inspector: ConstructionInspector
 var _active_work: Dictionary = {}
 var _labour_records: Dictionary = {}
 var _actor_message_bus: ActorMessageBus
@@ -135,6 +172,9 @@ var _camera_focus := Vector3.ZERO
 var _camera_yaw := DEFAULT_CAMERA_YAW
 var _camera_pitch := DEFAULT_CAMERA_PITCH
 var _camera_size := DEFAULT_CAMERA_SIZE
+var _camera_reset_tween: Tween
+var _citizen_camera_tween: Tween
+var _citizen_camera_cycle_index := -1
 var _right_drag_active := false
 var _right_dragged := false
 var _right_drag_start := Vector2.ZERO
@@ -142,21 +182,19 @@ var _right_drag_last := Vector2.ZERO
 var _clouds_root: Node3D
 var _cloud_velocities: Dictionary = {}
 var _cloud_shadow_offset := Vector2.ZERO
-var _compass_viewport: SubViewport
-var _compass_camera: Camera3D
-var _compass_glass: MeshInstance3D
-var _compass_glass_mesh: QuadMesh
-var _compass_hover_outline: MeshInstance3D
+var _compass_widget := CompassWidgetScript.new()
 var _elapsed := 0.0
 var _simulation_speed := 1.0
+var _citizens_are_sleeping := false
 
 
 func _ready() -> void:
+	_load_or_create_world_generation_profile()
 	_create_environment()
 	_create_ground()
 	_create_camera()
 	_create_clouds()
-	_create_path_preview()
+	_create_citizen_command_overlay()
 	_create_interface()
 	_create_actor_speech_system()
 	_create_custom_cursor()
@@ -164,9 +202,20 @@ func _ready() -> void:
 	_create_pixel_filter()
 	_seed_world()
 	_create_grass_renderer()
-	_create_fog_of_war()
+	_update_world_streaming(true)
+	_reveal_world_around_citizens()
 	_apply_pixel_font_to_controls(self)
 	_update_interface()
+
+
+func _load_or_create_world_generation_profile() -> void:
+	_world_generation_profile = WorldGenerationProfileScript.load_from_path(WORLD_GENERATION_PROFILE_PATH)
+	if _world_generation_profile != null:
+		return
+	_world_generation_profile = WorldGenerationProfileScript.create_default()
+	var save_error := _world_generation_profile.save_to_path(WORLD_GENERATION_PROFILE_PATH)
+	if save_error != OK:
+		push_warning("World generation profile could not be persisted: %s" % error_string(save_error))
 
 
 func _process(delta: float) -> void:
@@ -183,12 +232,34 @@ func _process(delta: float) -> void:
 	_update_world_selection_outline()
 	_update_building_hotkey_hint()
 	_update_support_placement_preview()
+	_update_deconstruction_hover_preview()
+	_update_world_streaming()
 	if is_instance_valid(_grass_renderer):
 		_grass_renderer.update_viewer_position(_camera_focus)
 	_reveal_world_around_citizens()
-	_update_path_preview()
+	if is_instance_valid(_citizen_command_overlay):
+		_citizen_command_overlay.update_citizens(_selected_citizens)
 	_update_labour(simulation_delta)
+	_update_selected_construction_inspector()
 	_update_interface()
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mouse_event := event as InputEventMouseButton
+		if not mouse_event.pressed:
+			return
+		if mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_adjust_camera_zoom(-CAMERA_ZOOM_STEP)
+			get_viewport().set_input_as_handled()
+		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_adjust_camera_zoom(CAMERA_ZOOM_STEP)
+			get_viewport().set_input_as_handled()
+	elif event is InputEventPanGesture:
+		var pan_event := event as InputEventPanGesture
+		if absf(pan_event.delta.y) > 0.01:
+			_adjust_camera_zoom(pan_event.delta.y * CAMERA_TRACKPAD_ZOOM_SCALE)
+			get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -206,6 +277,9 @@ func _handle_key_input(event: InputEventKey) -> void:
 	if event.keycode == KEY_F1:
 		_show_onboarding()
 		return
+	if event.keycode == KEY_F2:
+		get_tree().change_scene_to_file("res://scenes/BuildingBlueprintEditor.tscn")
+		return
 	if is_instance_valid(_onboarding_layer) and _onboarding_layer.visible:
 		_complete_onboarding()
 		return
@@ -220,7 +294,11 @@ func _handle_key_input(event: InputEventKey) -> void:
 		KEY_B:
 			_toggle_build_menu()
 		KEY_ESCAPE:
-			if is_instance_valid(_build_menu) and _build_menu.visible:
+			if _landscape_mode:
+				_leave_landscape_mode()
+			elif _greenery_mode:
+				_leave_greenery_mode()
+			elif is_instance_valid(_build_menu) and _build_menu.visible:
 				_build_menu.visible = false
 			else:
 				_leave_build_mode()
@@ -230,6 +308,8 @@ func _handle_key_input(event: InputEventKey) -> void:
 
 func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if _right_drag_active:
+		_cancel_camera_reset_tween()
+		_cancel_citizen_camera_tween()
 		var drag_delta: Vector2 = event.position - _right_drag_last
 		_right_drag_last = event.position
 		if _right_drag_start.distance_to(event.position) >= SELECTION_DRAG_THRESHOLD:
@@ -247,12 +327,6 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
-	if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-		_adjust_camera_zoom(-CAMERA_ZOOM_STEP)
-		return
-	if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-		_adjust_camera_zoom(CAMERA_ZOOM_STEP)
-		return
 	if event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_begin_selection_drag(event.position)
@@ -274,11 +348,28 @@ func _handle_right_mouse_button(event: InputEventMouseButton) -> void:
 		return
 	if _build_mode:
 		_leave_build_mode()
+	elif _landscape_mode:
+		_leave_landscape_mode()
+	elif _greenery_mode:
+		_leave_greenery_mode()
 	else:
 		_handle_command_order(event.position)
 
 
 func _handle_world_click(screen_position: Vector2, exact_selection := false, keep_placing := false) -> void:
+	if _removing_buildings:
+		var remove_hit := _raycast(screen_position)
+		if remove_hit.is_empty():
+			return
+		var remove_collider: Node = remove_hit.get("collider") as Node
+		_remove_world_object(_world_object_for(remove_collider))
+		return
+	if _landscape_mode:
+		_handle_landscape_click(screen_position)
+		return
+	if _greenery_mode:
+		_handle_greenery_click(screen_position)
+		return
 	if not _placing_support and not exact_selection:
 		var priority_citizen := _citizen_at_screen_point(screen_position)
 		if priority_citizen != null:
@@ -297,13 +388,10 @@ func _handle_world_click(screen_position: Vector2, exact_selection := false, kee
 	var world_object: Variant = _world_object_for(collider)
 
 	if _placing_support:
-		if collider != null and collider.get_meta("world_kind", "") == "ground":
-			var construction_site_position := _snap_to_world_unit(hit.position)
-			if (
-				_is_inside_playable_world(construction_site_position)
-				and not _excavated_cells.has(_world_unit_cell(construction_site_position))
-			):
-				_place_support_construction_site(construction_site_position, keep_placing)
+		var construction_site_position := _snap_to_world_unit(hit.position)
+		var placement := _support_placement_evaluation(construction_site_position)
+		if bool(placement.get("valid", false)):
+			_place_support_construction_site(construction_site_position, keep_placing)
 		return
 	if _placing_excavation:
 		if collider != null and collider.get_meta("world_kind", "") == "ground":
@@ -316,6 +404,10 @@ func _handle_world_click(screen_position: Vector2, exact_selection := false, kee
 	if world_object is ExcavationSite:
 		_set_selected_citizens([])
 		_select_world_object(world_object as ExcavationSite)
+		return
+	if world_object is PileStorage:
+		_set_selected_citizens([])
+		_select_world_object(world_object as PileStorage)
 		return
 
 	if world_object is Citizen:
@@ -332,6 +424,243 @@ func _handle_world_click(screen_position: Vector2, exact_selection := false, kee
 		_set_selected_citizens([])
 		_leave_build_mode()
 		_select_ground_tile(hit.position)
+
+
+func _handle_greenery_click(screen_position: Vector2) -> void:
+	var hit := _raycast(screen_position)
+	if hit.is_empty():
+		return
+	var hit_position: Vector3 = hit.get("position", Vector3.ZERO)
+	if not _is_world_position_revealed(hit_position):
+		return
+	var collider := hit.get("collider") as Node
+	var world_object: Variant = _world_object_for(collider)
+	if world_object is WorldItem:
+		var item := world_object as WorldItem
+		if item.item_kind in ["bush", "stump"]:
+			_selected_greenery = item
+			_select_world_object(item)
+		return
+	if collider != null and collider.get_meta("world_kind", "") == "ground":
+		if not is_instance_valid(_selected_greenery):
+			_select_ground_tile(hit.position)
+			return
+		if not _try_relocate_selected_greenery(hit_position):
+			_shake_world_object(_selected_greenery)
+
+
+func _try_relocate_selected_greenery(destination_position: Vector3) -> bool:
+	if (
+		not _greenery_mode
+		or not is_instance_valid(_selected_greenery)
+		or _selected_greenery.item_kind not in ["bush", "stump"]
+	):
+		return false
+	var source_cell := _world_unit_cell(_selected_greenery.global_position)
+	var destination_cell := _world_unit_cell(destination_position)
+	if destination_cell == source_cell:
+		return true
+	if not _greenery_destination_is_available(destination_cell, _selected_greenery):
+		return false
+
+	_cancel_jobs_targeting_removed_object(_selected_greenery)
+	_occupied_static_world_units.erase(source_cell)
+	if _selected_greenery.item_kind == "bush":
+		_occupied_bush_world_units.erase(source_cell)
+	for other_item in _items:
+		if (
+			is_instance_valid(other_item)
+			and other_item != _selected_greenery
+			and not other_item.is_carried
+			and _world_unit_cell(other_item.global_position) == source_cell
+		):
+			_occupied_static_world_units[source_cell] = true
+			if other_item.item_kind == "bush":
+				_occupied_bush_world_units[source_cell] = true
+	_detach_streamed_greenery_for_relocation(_selected_greenery)
+
+	var within_cell_offset := Vector2(
+		_selected_greenery.global_position.x - float(source_cell.x) - 0.5,
+		_selected_greenery.global_position.z - float(source_cell.y) - 0.5
+	)
+	within_cell_offset.x = clampf(within_cell_offset.x, -0.27, 0.27)
+	within_cell_offset.y = clampf(within_cell_offset.y, -0.27, 0.27)
+	_selected_greenery.global_position = Vector3(
+		float(destination_cell.x) + 0.5 + within_cell_offset.x,
+		0.0,
+		float(destination_cell.y) + 0.5 + within_cell_offset.y
+	)
+	_occupied_static_world_units[destination_cell] = true
+	if _selected_greenery.item_kind == "bush":
+		_occupied_bush_world_units[destination_cell] = true
+		if is_instance_valid(_grass_renderer):
+			_grass_renderer.exclude_world_unit(destination_cell)
+	_update_world_selection_outline()
+	return true
+
+
+func _greenery_destination_is_available(destination_cell: Vector2i, moving_item: WorldItem) -> bool:
+	if not _is_inside_playable_world(_cell_centre(destination_cell)):
+		return false
+	if _excavated_cells.has(destination_cell):
+		return false
+	if _occupied_static_world_units.has(destination_cell):
+		return false
+	for item in _items:
+		if (
+			is_instance_valid(item)
+			and item != moving_item
+			and not item.is_carried
+			and _world_unit_cell(item.global_position) == destination_cell
+		):
+			return false
+	for construction_site in _construction_sites:
+		if (
+			is_instance_valid(construction_site)
+			and _world_unit_cell(construction_site.global_position) == destination_cell
+		):
+			return false
+	for excavation_site in _excavation_sites:
+		if (
+			is_instance_valid(excavation_site)
+			and _world_unit_cell(excavation_site.global_position) == destination_cell
+		):
+			return false
+	return true
+
+
+func _detach_streamed_greenery_for_relocation(item: WorldItem) -> void:
+	if str(item.get_meta("stream_entity_id", "")).is_empty():
+		return
+	# Moving generated greenery is a player-authored world delta: suppress its
+	# original seeded copy and keep this node as a runtime item at the new cell.
+	_mark_streamed_entity_removed(item)
+	item.remove_meta("stream_entity_id")
+	item.remove_meta("stream_chunk")
+	item.remove_meta("stream_dirty")
+
+
+func _handle_landscape_click(screen_position: Vector2) -> void:
+	var hit := _raycast(screen_position)
+	if hit.is_empty():
+		return
+	var hit_position: Vector3 = hit.get("position", Vector3.ZERO)
+	if not _is_world_position_revealed(hit_position):
+		return
+	var collider := hit.get("collider") as Node
+	var world_object: Variant = _world_object_for(collider)
+	if _landscape_tool == "remove":
+		if world_object is TerrainBlock:
+			_remove_terrain_block((world_object as TerrainBlock).block_coordinate)
+		elif collider != null and collider.get_meta("world_kind", "") == "ground":
+			_remove_base_terrain_block(_world_unit_cell(hit_position))
+		return
+	if _landscape_tool != "add":
+		return
+	if world_object is TerrainBlock:
+		var source_coordinate := (world_object as TerrainBlock).block_coordinate
+		var hit_normal: Vector3 = hit.get("normal", Vector3.UP)
+		var face_offset := Vector3i(
+			roundi(hit_normal.x),
+			roundi(hit_normal.y),
+			roundi(hit_normal.z)
+		)
+		var target_coordinate := source_coordinate + face_offset
+		if target_coordinate.y == -1:
+			_restore_base_terrain_block(Vector2i(target_coordinate.x, target_coordinate.z))
+		else:
+			_place_terrain_block(target_coordinate)
+	elif collider != null and collider.get_meta("world_kind", "") == "ground":
+		var ground_cell := _world_unit_cell(hit_position)
+		if _excavated_cells.has(ground_cell):
+			_restore_base_terrain_block(ground_cell)
+		else:
+			_place_terrain_block(Vector3i(ground_cell.x, 0, ground_cell.y))
+
+
+func _remove_base_terrain_block(world_cell: Vector2i) -> bool:
+	if (
+		_excavated_cells.has(world_cell)
+		or not _is_inside_playable_world(_cell_centre(world_cell))
+		or _surface_cell_has_occupant(world_cell)
+	):
+		return false
+	_excavated_cells[world_cell] = true
+	_create_excavated_pit(world_cell)
+	_update_excavated_ground_mask()
+	if is_instance_valid(_grass_renderer):
+		_grass_renderer.exclude_world_unit(world_cell)
+	_select_ground_tile(_cell_centre(world_cell))
+	return true
+
+
+func _restore_base_terrain_block(world_cell: Vector2i) -> bool:
+	if not _excavated_cells.has(world_cell):
+		return false
+	_excavated_cells.erase(world_cell)
+	if _excavated_pit_roots.has(world_cell):
+		var pit_root := _excavated_pit_roots[world_cell] as Node3D
+		_excavated_pit_roots.erase(world_cell)
+		if is_instance_valid(pit_root):
+			pit_root.queue_free()
+	_update_excavated_ground_mask()
+	_select_ground_tile(_cell_centre(world_cell))
+	return true
+
+
+func _place_terrain_block(block_coordinate: Vector3i) -> bool:
+	if block_coordinate.y < 0 or block_coordinate.y > 255:
+		return false
+	var horizontal_cell := Vector2i(block_coordinate.x, block_coordinate.z)
+	if not _is_inside_playable_world(_cell_centre(horizontal_cell)):
+		return false
+	if _terrain_blocks.has(block_coordinate):
+		return false
+	if block_coordinate.y == 0 and _surface_cell_has_occupant(horizontal_cell):
+		return false
+	var terrain_block := TerrainBlockScript.new() as TerrainBlock
+	terrain_block.configure(block_coordinate)
+	add_child(terrain_block)
+	_terrain_blocks[block_coordinate] = terrain_block
+	if block_coordinate.y == 0 and is_instance_valid(_grass_renderer):
+		_grass_renderer.exclude_world_unit(horizontal_cell)
+	_select_world_object(terrain_block)
+	return true
+
+
+func _remove_terrain_block(block_coordinate: Vector3i) -> bool:
+	if not _terrain_blocks.has(block_coordinate):
+		return false
+	var terrain_block := _terrain_blocks[block_coordinate] as TerrainBlock
+	_terrain_blocks.erase(block_coordinate)
+	if _selected_world_object == terrain_block:
+		_clear_object_selection()
+	if is_instance_valid(terrain_block):
+		terrain_block.queue_free()
+	return true
+
+
+func _surface_cell_has_occupant(world_cell: Vector2i) -> bool:
+	if _occupied_static_world_units.has(world_cell):
+		return true
+	if _terrain_blocks.has(Vector3i(world_cell.x, 0, world_cell.y)):
+		return true
+	for construction_site in _construction_sites:
+		if (
+			is_instance_valid(construction_site)
+			and _world_unit_cell(construction_site.global_position) == world_cell
+		):
+			return true
+	for excavation_site in _excavation_sites:
+		if (
+			is_instance_valid(excavation_site)
+			and _world_unit_cell(excavation_site.global_position) == world_cell
+		):
+			return true
+	for citizen in _citizens:
+		if is_instance_valid(citizen) and _world_unit_cell(citizen.global_position) == world_cell:
+			return true
+	return false
 
 
 
@@ -356,7 +685,17 @@ func _handle_command_order(screen_position: Vector2) -> void:
 		_issue_group_move(hit_position)
 		return
 	if world_object is SupportConstructionSite:
-		_continue_build(_selected_citizen, world_object as SupportConstructionSite)
+		var support := world_object as SupportConstructionSite
+		if support.is_complete():
+			_order_enter_completed_building(_selected_citizen, support)
+		else:
+			var woke_from_sleep := _wake_for_direct_order(_selected_citizen)
+			if not woke_from_sleep:
+				_selected_citizen.set_work_assignment({"kind": "construction"})
+			_actor_message_bus.post_message(_selected_citizen, MessageCatalog.CONFIRM_CONSTRUCTION, {
+				"cluster_scope": _next_speech_command_scope(),
+			})
+			_continue_build(_selected_citizen, support)
 		return
 	if world_object is ExcavationSite:
 		_order_excavate(_selected_citizen, world_object as ExcavationSite)
@@ -383,6 +722,8 @@ func _issue_group_move(world_target: Vector3) -> void:
 		var citizen := _selected_citizens[citizen_index]
 		if not is_instance_valid(citizen):
 			continue
+		_wake_for_direct_order(citizen)
+		citizen.clear_work_assignment()
 		# Every selected Citizen converges into the clicked World Unit. Separate
 		# compact slots prevent overlap without preserving a parallel formation.
 		var target_offset := _group_target_offset(citizen_index, citizen_count)
@@ -403,11 +744,23 @@ func _group_target_offset(citizen_index: int, citizen_count: int) -> Vector2:
 	var row_count := ceili(float(citizen_count) / float(column_count))
 	var spacing := 0.5 if maxi(column_count, row_count) <= 2 else 0.32
 	var column := citizen_index % column_count
-	var row := citizen_index / column_count
+	var row := floori(float(citizen_index) / float(column_count))
 	return Vector2(
 		(float(column) - float(column_count - 1) * 0.5) * spacing,
 		(float(row) - float(row_count - 1) * 0.5) * spacing
 	)
+
+
+func _wake_for_direct_order(citizen: Citizen) -> bool:
+	if not is_instance_valid(citizen) or not citizen.is_sleeping():
+		return false
+	# A player order overrides sleep and the old assignment. Clearing the task
+	# before waking avoids resuming its route through Citizen.set_sleeping(false).
+	_cancel_active_work(citizen)
+	citizen.finish_task()
+	citizen.clear_work_assignment()
+	citizen.set_sleeping(false)
+	return true
 
 
 func _assign_group_navigation_task(
@@ -453,7 +806,12 @@ func _finish_selection_drag(screen_position: Vector2, exact_selection := false, 
 	var drag_distance := _selection_drag_start.distance_to(_selection_drag_current)
 	if _selection_box != null:
 		_selection_box.visible = false
-	if drag_distance >= SELECTION_DRAG_THRESHOLD and not _build_mode:
+	if (
+		drag_distance >= SELECTION_DRAG_THRESHOLD
+		and not _build_mode
+		and not _greenery_mode
+		and not _landscape_mode
+	):
 		_select_citizens_in_screen_rect(_selection_screen_rect())
 	else:
 		_handle_world_click(screen_position, exact_selection, keep_placing)
@@ -468,7 +826,7 @@ func _update_selection_box() -> void:
 	var selection_rect := _selection_screen_rect()
 	_selection_box.position = selection_rect.position
 	_selection_box.size = selection_rect.size
-	_selection_box.visible = not _build_mode
+	_selection_box.visible = not _build_mode and not _greenery_mode and not _landscape_mode
 
 
 func _selection_screen_rect() -> Rect2:
@@ -516,10 +874,15 @@ func _set_selected_citizens(next_selection: Array[Citizen]) -> void:
 	_selected_citizens = next_selection.duplicate()
 	_selected_citizen = _selected_citizens[0] if not _selected_citizens.is_empty() else null
 	if not _selected_citizens.is_empty():
+		_clear_deconstruction_hover_preview()
 		_clear_object_selection()
 		_build_mode = false
+		_greenery_mode = false
+		_selected_greenery = null
+		_landscape_mode = false
 		_placing_support = false
 		_placing_excavation = false
+		_removing_buildings = false
 		_selected_building = null
 		if is_instance_valid(_build_menu):
 			_build_menu.visible = false
@@ -533,11 +896,15 @@ func _select_only(citizen: Citizen) -> void:
 
 func _select_building(building: SupportConstructionSite) -> void:
 	_set_selected_citizens([])
+	_greenery_mode = false
+	_selected_greenery = null
+	_landscape_mode = false
 	_selected_building = building
 	_select_world_object(building)
 	_build_mode = true
 	_placing_support = false
 	_placing_excavation = false
+	_removing_buildings = false
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = true
 	_refresh_planned_building_visibility()
@@ -546,19 +913,25 @@ func _select_building(building: SupportConstructionSite) -> void:
 func _enter_build_mode(place_support: bool) -> void:
 	_set_selected_citizens([])
 	_clear_object_selection()
+	_greenery_mode = false
+	_selected_greenery = null
+	_landscape_mode = false
 	_selected_building = null
 	_build_mode = true
 	_placing_support = place_support
 	_placing_excavation = false
+	_removing_buildings = false
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = true
 	_refresh_planned_building_visibility()
 
 
 func _leave_build_mode() -> void:
+	_clear_deconstruction_hover_preview()
 	_build_mode = false
 	_placing_support = false
 	_placing_excavation = false
+	_removing_buildings = false
 	_selected_building = null
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = false
@@ -573,6 +946,7 @@ func _enter_excavation_mode() -> void:
 	_build_mode = true
 	_placing_support = false
 	_placing_excavation = true
+	_removing_buildings = false
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = true
 	_refresh_planned_building_visibility()
@@ -605,22 +979,7 @@ func _clear_object_selection() -> void:
 func _try_delete_selected_object() -> void:
 	if not is_instance_valid(_selected_world_object):
 		return
-	if _selected_world_object is SupportConstructionSite:
-		var support := _selected_world_object as SupportConstructionSite
-		_construction_sites.erase(support)
-		if _selected_building == support:
-			_selected_building = null
-			_build_mode = false
-			_placing_support = false
-		_clear_object_selection()
-		_collapse_world_object(support)
-		_refresh_planned_building_visibility()
-		return
-	if _selected_world_object is ExcavationSite:
-		var excavation_site := _selected_world_object as ExcavationSite
-		_excavation_sites.erase(excavation_site)
-		_clear_object_selection()
-		_collapse_world_object(excavation_site)
+	if _remove_world_object(_selected_world_object):
 		return
 	# Naturally generated resources require Citizen work; Backspace only gives
 	# refusal feedback and never bypasses that work.
@@ -628,10 +987,93 @@ func _try_delete_selected_object() -> void:
 		_shake_world_object(_selected_world_object)
 
 
+func _remove_world_object(world_object: Variant) -> bool:
+	if world_object is SupportConstructionSite:
+		var support := world_object as SupportConstructionSite
+		_clear_deconstruction_hover_preview()
+		_cancel_jobs_targeting_removed_object(support)
+		_drop_deconstructed_resources(support)
+		_construction_sites.erase(support)
+		if _selected_building == support:
+			_selected_building = null
+		if _selected_world_object == support:
+			_clear_object_selection()
+		# Removal is immediate. It creates no deconstruction marker, site, or
+		# collapse animation that could be mistaken for another world object.
+		support.visible = false
+		support.queue_free()
+		_refresh_planned_building_visibility()
+		return true
+	if world_object is ExcavationSite:
+		var excavation_site := world_object as ExcavationSite
+		_clear_deconstruction_hover_preview()
+		_cancel_jobs_targeting_removed_object(excavation_site)
+		_excavation_sites.erase(excavation_site)
+		if _selected_world_object == excavation_site:
+			_clear_object_selection()
+		excavation_site.visible = false
+		excavation_site.queue_free()
+		return true
+	return false
+
+
+func _drop_deconstructed_resources(building: Node3D) -> void:
+	if not building.has_method("deconstruction_resource_snapshot"):
+		return
+	var resource_snapshot_value: Variant = building.call("deconstruction_resource_snapshot")
+	if not resource_snapshot_value is Dictionary:
+		return
+	var resource_snapshot := resource_snapshot_value as Dictionary
+	var dropped_resource_index := 0
+	for resource_kind_value in resource_snapshot:
+		var resource_kind := str(resource_kind_value)
+		var resource_count := maxi(0, int(resource_snapshot[resource_kind_value]))
+		for resource_index in resource_count:
+			if resource_kind != "log":
+				continue
+			var stack_layer := floori(float(dropped_resource_index) / 2.0)
+			var stack_side := -1.0 if dropped_resource_index % 2 == 0 else 1.0
+			var drop_position := building.global_position + Vector3(
+				stack_side * 0.075,
+				float(stack_layer) * 0.24,
+				-0.075 if stack_layer % 2 == 0 else 0.075
+			)
+			var detail_seed := _coordinate_seed(
+				floori(building.global_position.x * 10.0) + resource_index,
+				floori(building.global_position.z * 10.0) + dropped_resource_index,
+				431
+			)
+			# Alternate cardinal axes so several returned Logs read as a loose
+			# physical stack while remaining inside the removed World Unit.
+			if detail_seed % 2 != dropped_resource_index % 2:
+				detail_seed += 1
+			_spawn_item("log", drop_position, maxi(1, detail_seed))
+			dropped_resource_index += 1
+
+
+func _cancel_jobs_targeting_removed_object(world_object: Node3D) -> void:
+	for citizen in _citizens:
+		if not is_instance_valid(citizen):
+			continue
+		var citizen_task := citizen.task
+		if (
+			citizen_task.get("target") != world_object
+			and citizen_task.get("construction_site") != world_object
+		):
+			continue
+		var was_active := _active_work.has(citizen)
+		_cancel_active_work(citizen)
+		if not was_active and citizen_task.get("construction_site") == world_object:
+			_return_unapplied_building_block(citizen, citizen_task)
+		citizen.clear_work_assignment()
+		citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+
+
 func _rotate_selected_building(direction: int) -> void:
 	if (
 		not is_instance_valid(_selected_building)
 		or _selected_world_object != _selected_building
+		or not _selected_building.is_planned()
 	):
 		return
 	var rotation_quarters := int(_selected_building.get_meta(
@@ -765,7 +1207,11 @@ func _selection_world_line_width(world_position: Vector3) -> float:
 	if _camera.projection != Camera3D.PROJECTION_ORTHOGONAL:
 		var camera_depth := maxf(0.1, _camera.global_position.distance_to(world_position))
 		visible_world_height = 2.0 * camera_depth * tan(deg_to_rad(_camera.fov) * 0.5)
-	return clampf(visible_world_height / viewport_height * UI_OUTLINE_PIXELS, 0.025, 0.09)
+	return clampf(
+		visible_world_height / viewport_height * VisualTokens.OUTLINE_PIXELS,
+		0.025,
+		0.09
+	)
 
 
 func _world_visual_bounds(world_object: Node3D) -> AABB:
@@ -801,8 +1247,8 @@ func _box_segment_transform(segment_start: Vector3, segment_end: Vector3) -> Tra
 	var reference := Vector3.UP if absf(direction.dot(Vector3.UP)) < 0.95 else Vector3.RIGHT
 	var basis_x := reference.cross(direction).normalized()
 	var basis_y := direction.cross(basis_x).normalized()
-	var basis := Basis(basis_x, basis_y, direction).scaled(Vector3(1.0, 1.0, length))
-	return Transform3D(basis, segment_start.lerp(segment_end, 0.5))
+	var segment_basis := Basis(basis_x, basis_y, direction).scaled(Vector3(1.0, 1.0, length))
+	return Transform3D(segment_basis, segment_start.lerp(segment_end, 0.5))
 
 
 func _refresh_planned_building_visibility() -> void:
@@ -823,11 +1269,11 @@ func _cell_centre(cell: Vector2i) -> Vector3:
 
 
 func _clamp_to_playable_world(world_position: Vector3) -> Vector3:
-	return GridNavigationScript.clamp_to_square(world_position, WORLD_HALF_EXTENT)
+	return world_position
 
 
 func _is_inside_playable_world(world_position: Vector3) -> bool:
-	return GridNavigationScript.is_inside_square(world_position, WORLD_HALF_EXTENT)
+	return _loaded_chunks.has(WorldStreamerScript.chunk_for_world_position(world_position))
 
 
 func _assign_navigation_task(
@@ -851,17 +1297,71 @@ func _build_navigation_route(
 	target_position: Vector3,
 	approach_solid_target: bool
 ) -> Array[Vector3]:
-	return GridNavigationScript.build_route(
+	var loaded_component := _loaded_chunk_component(
+		WorldStreamerScript.chunk_for_world_position(start_position)
+	)
+	if not loaded_component.has(WorldStreamerScript.chunk_for_world_position(target_position)):
+		return []
+	var navigation_region := _loaded_navigation_region(loaded_component)
+	if navigation_region.size == Vector2i.ZERO:
+		return []
+	return GridNavigationScript.build_route_in_region(
 		start_position,
 		target_position,
-		_navigation_blocked_cells(),
-		WORLD_HALF_EXTENT,
+		_navigation_blocked_cells(loaded_component, navigation_region),
+		navigation_region,
 		approach_solid_target
 	)
 
 
-func _navigation_blocked_cells() -> Dictionary:
+func _loaded_chunk_component(start_chunk: Vector2i) -> Dictionary:
+	if not _loaded_chunks.has(start_chunk):
+		return {}
+	var component: Dictionary = {start_chunk: true}
+	var frontier: Array[Vector2i] = [start_chunk]
+	var frontier_index := 0
+	while frontier_index < frontier.size():
+		var current: Vector2i = frontier[frontier_index]
+		frontier_index += 1
+		for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var neighbour: Vector2i = current + offset
+			if _loaded_chunks.has(neighbour) and not component.has(neighbour):
+				component[neighbour] = true
+				frontier.append(neighbour)
+	return component
+
+
+func _loaded_navigation_region(loaded_component: Dictionary) -> Rect2i:
+	if loaded_component.is_empty():
+		return Rect2i()
+	var first := true
+	var minimum := Vector2i.ZERO
+	var maximum := Vector2i.ZERO
+	for chunk_value in loaded_component:
+		var chunk: Vector2i = chunk_value
+		var bounds := WorldStreamerScript.chunk_world_bounds(chunk)
+		if first:
+			minimum = bounds.position
+			maximum = bounds.end
+			first = false
+		else:
+			minimum.x = mini(minimum.x, bounds.position.x)
+			minimum.y = mini(minimum.y, bounds.position.y)
+			maximum.x = maxi(maximum.x, bounds.end.x)
+			maximum.y = maxi(maximum.y, bounds.end.y)
+	return Rect2i(minimum, maximum - minimum)
+
+
+func _navigation_blocked_cells(loaded_component: Dictionary, navigation_region: Rect2i) -> Dictionary:
 	var blocked: Dictionary = _excavated_cells.duplicate()
+	for world_x in range(navigation_region.position.x, navigation_region.end.x):
+		for world_z in range(navigation_region.position.y, navigation_region.end.y):
+			var world_unit := Vector2i(world_x, world_z)
+			if not loaded_component.has(WorldStreamerScript.chunk_for_world_unit(world_unit)):
+				blocked[world_unit] = true
+	if is_instance_valid(_starting_pile):
+		for pile_cell in _starting_pile.world_footprint_cells():
+			blocked[pile_cell] = true
 	for item in _items:
 		if not is_instance_valid(item) or item.is_carried:
 			continue
@@ -878,6 +1378,9 @@ func _order_group_chop(clicked_tree: WorldItem) -> void:
 	for citizen in _selected_citizens:
 		if not is_instance_valid(citizen):
 			continue
+		var woke_from_sleep := _wake_for_direct_order(citizen)
+		if not woke_from_sleep:
+			citizen.set_work_assignment({"kind": ActionCatalog.CHOP_TREE})
 		_cancel_active_work(citizen)
 		citizen.finish_task()
 	var candidates := _tree_chop_candidates(clicked_tree)
@@ -961,7 +1464,8 @@ func _order_chop(
 	citizen: Citizen,
 	tree: WorldItem,
 	work_slot := -1,
-	command_scope := ""
+	command_scope := "",
+	is_continuation := false
 ) -> bool:
 	if work_slot < 0:
 		work_slot = _next_available_tree_work_slot(tree)
@@ -975,7 +1479,7 @@ func _order_chop(
 		"tree_work_slot": work_slot,
 	}
 	var accepted := _assign_tree_work_position(citizen, tree, work_slot, next_task)
-	if accepted:
+	if accepted and not is_continuation:
 		_actor_message_bus.post_message(citizen, MessageCatalog.CONFIRM_LOG, {
 			"cluster_scope": command_scope if not command_scope.is_empty() else _next_speech_command_scope(),
 		})
@@ -989,7 +1493,11 @@ func _assign_tree_work_position(
 	next_task: Dictionary
 ) -> bool:
 	var tree_cell := _world_unit_cell(tree.global_position)
-	var blocked_cells := _navigation_blocked_cells()
+	var loaded_component := _loaded_chunk_component(
+		WorldStreamerScript.chunk_for_world_position(citizen.global_position)
+	)
+	var navigation_region := _loaded_navigation_region(loaded_component)
+	var blocked_cells := _navigation_blocked_cells(loaded_component, navigation_region)
 	for attempt_index in GridNavigationScript.NEIGHBOUR_OFFSETS.size():
 		var offset_index := (work_slot + attempt_index) % GridNavigationScript.NEIGHBOUR_OFFSETS.size()
 		var candidate_cell := tree_cell + GridNavigationScript.NEIGHBOUR_OFFSETS[offset_index]
@@ -1000,19 +1508,28 @@ func _assign_tree_work_position(
 	return false
 
 
-func _order_harvest(citizen: Citizen, bush: WorldItem) -> void:
+func _order_harvest(citizen: Citizen, bush: WorldItem, is_continuation := false) -> void:
+	if not is_continuation:
+		var woke_from_sleep := _wake_for_direct_order(citizen)
+		if not woke_from_sleep:
+			citizen.set_work_assignment({"kind": ActionCatalog.HARVEST_BUSH})
 	var accepted := _assign_navigation_task(citizen, bush.global_position, {
 		"kind": ActionCatalog.HARVEST_BUSH,
 		"status_text_key": UIText.CITIZEN_WALKING_TO_BUSH_STATUS_TEXT,
 		"target": bush,
 	}, true)
-	if accepted:
+	if accepted and not is_continuation:
 		_actor_message_bus.post_message(citizen, MessageCatalog.CONFIRM_FOOD, {
 			"cluster_scope": _next_speech_command_scope(),
 		})
 
 
 func _order_collect_cactus(citizen: Citizen, cactus: WorldItem) -> void:
+	_wake_for_direct_order(citizen)
+	citizen.clear_work_assignment()
+	if is_instance_valid(_starting_pile) and not _starting_pile.can_store_resource("water"):
+		citizen.finish_task(UIText.CITIZEN_WATER_NEEDS_VESSEL_STATUS_TEXT)
+		return
 	var accepted := _assign_navigation_task(citizen, cactus.global_position, {
 		"kind": ActionCatalog.COLLECT_CACTUS,
 		"status_text_key": UIText.CITIZEN_WALKING_TO_CACTUS_STATUS_TEXT,
@@ -1041,6 +1558,8 @@ func _place_support_construction_site(world_position: Vector3, keep_placing := f
 func _ensure_support_placement_preview() -> void:
 	if is_instance_valid(_support_placement_preview):
 		return
+	_support_preview_allowed_material = _placement_preview_material(Palette.PLACEMENT_ALLOWED)
+	_support_preview_blocked_material = _placement_preview_material(Palette.PLACEMENT_BLOCKED)
 	_support_placement_preview = SupportConstructionSite.new()
 	_support_placement_preview.name = "SupportPlacementPreview"
 	add_child(_support_placement_preview)
@@ -1052,22 +1571,31 @@ func _ensure_support_placement_preview() -> void:
 		body.collision_mask = 0
 	for mesh_node in _support_placement_preview.find_children("*", "GeometryInstance3D", true, false):
 		var geometry := mesh_node as GeometryInstance3D
-		geometry.transparency = 0.12
+		geometry.material_override = _support_preview_allowed_material
 		geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var footprint := MeshInstance3D.new()
-	footprint.name = "PlacementFootprint"
-	var footprint_mesh := BoxMesh.new()
-	footprint_mesh.size = Vector3(0.9, 0.02, 0.9)
-	footprint.mesh = footprint_mesh
-	footprint.position.y = 0.04
-	var footprint_material := StandardMaterial3D.new()
-	footprint_material.albedo_color = Color(1.0, 1.0, 1.0, 0.32)
-	footprint_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	footprint_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	footprint.material_override = footprint_material
-	footprint.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_support_placement_preview.add_child(footprint)
+		_support_preview_geometry.append(geometry)
+	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
+		var quadrant := MeshInstance3D.new()
+		quadrant.name = "PlacementQuadrant%d" % (quadrant_index + 1)
+		var quadrant_mesh := BoxMesh.new()
+		quadrant_mesh.size = Vector3(0.48, 0.025, 0.48)
+		quadrant.mesh = quadrant_mesh
+		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+		quadrant.position = Vector3(quadrant_offset.x, 0.04, quadrant_offset.y)
+		quadrant.material_override = _support_preview_allowed_material
+		quadrant.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_support_placement_preview.add_child(quadrant)
+		_support_preview_quadrants.append(quadrant)
 	_support_placement_preview.visible = false
+
+
+func _placement_preview_material(colour: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(colour.r, colour.g, colour.b, 0.5)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.roughness = 1.0
+	return material
 
 
 func _update_support_placement_preview() -> void:
@@ -1084,18 +1612,183 @@ func _update_support_placement_preview() -> void:
 	if hit.is_empty():
 		_support_placement_preview.visible = false
 		return
-	var collider := hit.get("collider") as Node
-	if collider == null or collider.get_meta("world_kind", "") != "ground":
-		_support_placement_preview.visible = false
-		return
 	var preview_position := _snap_to_world_unit(hit.position)
-	var preview_cell := _world_unit_cell(preview_position)
-	_support_placement_preview.visible = (
-		_is_inside_playable_world(preview_position)
-		and not _excavated_cells.has(preview_cell)
+	var placement := _support_placement_evaluation(preview_position)
+	_support_placement_preview.global_position = preview_position
+	_support_placement_preview.visible = true
+	_apply_support_preview_evaluation(placement)
+
+
+func _support_placement_evaluation(preview_position: Vector3) -> Dictionary:
+	var invalid_quadrants: Array[bool] = [false, false, false, false]
+	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
+		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+		var quadrant_centre := preview_position + Vector3(quadrant_offset.x, 0.0, quadrant_offset.y)
+		if not _is_inside_playable_world(quadrant_centre):
+			invalid_quadrants[quadrant_index] = true
+			continue
+		var quadrant_cell := _world_unit_cell(quadrant_centre)
+		if _excavated_cells.has(quadrant_cell):
+			invalid_quadrants[quadrant_index] = true
+
+	if is_instance_valid(_starting_pile):
+		for pile_cell in _starting_pile.world_footprint_cells():
+			_mark_support_blocked_by_cell(
+				preview_position,
+				pile_cell,
+				invalid_quadrants
+			)
+	for item in _items:
+		if not is_instance_valid(item) or item.is_carried:
+			continue
+		_mark_support_blocked_by_cell(
+			preview_position,
+			_world_unit_cell(item.global_position),
+			invalid_quadrants
+		)
+	for construction_site in _construction_sites:
+		if not is_instance_valid(construction_site):
+			continue
+		_mark_support_blocked_by_footprint(
+			preview_position,
+			construction_site.global_position,
+			invalid_quadrants
+		)
+	for excavation_site in _excavation_sites:
+		if not is_instance_valid(excavation_site):
+			continue
+		_mark_support_blocked_by_cell(
+			preview_position,
+			_world_unit_cell(excavation_site.global_position),
+			invalid_quadrants
+		)
+
+	var valid := not invalid_quadrants.has(true)
+	return {
+		"valid": valid,
+		"invalid_quadrants": invalid_quadrants,
+	}
+
+
+func _mark_support_blocked_by_cell(
+	preview_position: Vector3,
+	blocked_cell: Vector2i,
+	invalid_quadrants: Array[bool]
+) -> void:
+	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
+		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+		var quadrant_centre := preview_position + Vector3(quadrant_offset.x, 0.0, quadrant_offset.y)
+		if _world_unit_cell(quadrant_centre) == blocked_cell:
+			invalid_quadrants[quadrant_index] = true
+
+
+func _mark_support_blocked_by_footprint(
+	preview_position: Vector3,
+	blocker_position: Vector3,
+	invalid_quadrants: Array[bool]
+) -> void:
+	var blocker_rect := Rect2(
+		Vector2(blocker_position.x - 0.5, blocker_position.z - 0.5),
+		Vector2.ONE
 	)
-	if _support_placement_preview.visible:
-		_support_placement_preview.global_position = preview_position
+	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
+		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+		var quadrant_rect := Rect2(
+			Vector2(
+				preview_position.x + quadrant_offset.x - 0.24,
+				preview_position.z + quadrant_offset.y - 0.24
+			),
+			Vector2(0.48, 0.48)
+		)
+		if quadrant_rect.intersects(blocker_rect, false):
+			invalid_quadrants[quadrant_index] = true
+
+
+func _apply_support_preview_evaluation(placement: Dictionary) -> void:
+	var placement_is_valid := bool(placement.get("valid", false))
+	var preview_material := (
+		_support_preview_allowed_material
+		if placement_is_valid
+		else _support_preview_blocked_material
+	)
+	for geometry in _support_preview_geometry:
+		if is_instance_valid(geometry):
+			geometry.material_override = preview_material
+	var invalid_quadrants: Array = placement.get("invalid_quadrants", [])
+	for quadrant_index in _support_preview_quadrants.size():
+		var quadrant := _support_preview_quadrants[quadrant_index]
+		if not is_instance_valid(quadrant):
+			continue
+		var quadrant_is_invalid := (
+			quadrant_index < invalid_quadrants.size()
+			and bool(invalid_quadrants[quadrant_index])
+		)
+		quadrant.material_override = (
+			_support_preview_blocked_material
+			if quadrant_is_invalid
+			else _support_preview_allowed_material
+		)
+func _update_deconstruction_hover_preview() -> void:
+	if not _removing_buildings or not _build_mode or not is_instance_valid(_camera):
+		_clear_deconstruction_hover_preview()
+		return
+	if get_viewport().gui_get_hovered_control() != null:
+		_clear_deconstruction_hover_preview()
+		return
+	var hover_hit := _raycast(get_viewport().get_mouse_position())
+	if hover_hit.is_empty():
+		_clear_deconstruction_hover_preview()
+		return
+	var hover_collider := hover_hit.get("collider") as Node
+	var hover_world_object: Variant = _world_object_for(hover_collider)
+	if not _is_deconstructable_world_object(hover_world_object):
+		_clear_deconstruction_hover_preview()
+		return
+	var next_target := hover_world_object as Node3D
+	if _deconstruction_hover_target == next_target:
+		return
+	_clear_deconstruction_hover_preview()
+	_deconstruction_hover_target = next_target
+	if _deconstruction_preview_material == null:
+		_deconstruction_preview_material = StandardMaterial3D.new()
+		_deconstruction_preview_material.albedo_color = Color(
+			Palette.DECONSTRUCTION_PREVIEW.r,
+			Palette.DECONSTRUCTION_PREVIEW.g,
+			Palette.DECONSTRUCTION_PREVIEW.b,
+			0.5
+		)
+		_deconstruction_preview_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_deconstruction_preview_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_deconstruction_preview_material.roughness = 1.0
+	for mesh_node in next_target.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := mesh_node as MeshInstance3D
+		if not is_instance_valid(mesh_instance) or not mesh_instance.visible:
+			continue
+		_deconstruction_original_materials[mesh_instance] = {
+			"material_override": mesh_instance.material_override,
+			"cast_shadow": mesh_instance.cast_shadow,
+		}
+		mesh_instance.material_override = _deconstruction_preview_material
+		mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+func _clear_deconstruction_hover_preview() -> void:
+	for mesh_value in _deconstruction_original_materials:
+		var mesh_instance := mesh_value as MeshInstance3D
+		if not is_instance_valid(mesh_instance):
+			continue
+		var original_state: Dictionary = _deconstruction_original_materials[mesh_value]
+		mesh_instance.material_override = original_state.get("material_override") as Material
+		mesh_instance.set("cast_shadow", original_state.get(
+			"cast_shadow",
+			GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		))
+	_deconstruction_original_materials.clear()
+	_deconstruction_hover_target = null
+
+
+func _is_deconstructable_world_object(world_object: Variant) -> bool:
+	return world_object is SupportConstructionSite or world_object is ExcavationSite
 
 
 func _place_excavation_site(world_cell: Vector2i, keep_placing := false) -> void:
@@ -1120,6 +1813,8 @@ func _place_excavation_site(world_cell: Vector2i, keep_placing := false) -> void
 
 
 func _order_excavate(citizen: Citizen, excavation_site: ExcavationSite) -> void:
+	_wake_for_direct_order(citizen)
+	citizen.clear_work_assignment()
 	_assign_navigation_task(citizen, excavation_site.global_position, {
 		"kind": ActionCatalog.EXCAVATE,
 		"status_text_key": UIText.CITIZEN_WALKING_TO_EXCAVATION_STATUS_TEXT,
@@ -1127,23 +1822,53 @@ func _order_excavate(citizen: Citizen, excavation_site: ExcavationSite) -> void:
 	}, true)
 
 
+func _order_enter_completed_building(
+	citizen: Citizen,
+	building: SupportConstructionSite
+) -> void:
+	_wake_for_direct_order(citizen)
+	citizen.clear_work_assignment()
+	_assign_navigation_task(citizen, building.global_position, {
+		"kind": ActionCatalog.MOVE,
+		"status_text_key": UIText.CITIZEN_WALKING_STATUS_TEXT,
+		"target": building,
+	}, false)
+
+
 func _continue_build(citizen: Citizen, construction_site: SupportConstructionSite) -> void:
 	if not is_instance_valid(construction_site) or not construction_site.needs_log():
+		construction_site = _nearest_incomplete_construction_site(citizen.global_position)
+	if construction_site == null:
+		citizen.clear_work_assignment()
 		citizen.finish_task(UIText.CITIZEN_SUPPORT_COMPLETE_STATUS_TEXT)
 		return
-	_actor_message_bus.post_message(citizen, MessageCatalog.CONFIRM_CONSTRUCTION, {
-		"cluster_scope": _next_speech_command_scope(),
-	})
-	var available_log := _nearest_available_log(citizen.global_position)
-	if available_log == null:
+	if not is_instance_valid(_starting_pile) or not _starting_pile.has_log():
+		citizen.clear_work_assignment()
 		citizen.finish_task(UIText.CITIZEN_SUPPORT_NEEDS_LOG_STATUS_TEXT)
 		return
-	_assign_navigation_task(citizen, available_log.global_position, {
+	_assign_navigation_task(citizen, _starting_pile.nearest_delivery_world_position(citizen.global_position), {
 		"kind": ActionCatalog.FETCH_LOG,
 		"status_text_key": UIText.CITIZEN_FETCHING_LOG_STATUS_TEXT,
-		"log": available_log,
+		"source_pile": _starting_pile,
 		"construction_site": construction_site,
-	}, false)
+	}, true)
+
+
+func _nearest_incomplete_construction_site(from_position: Vector3) -> SupportConstructionSite:
+	var nearest: SupportConstructionSite
+	var nearest_distance := INF
+	for construction_site in _construction_sites:
+		if (
+			not is_instance_valid(construction_site)
+			or not construction_site.needs_log()
+			or not construction_site.visible
+		):
+			continue
+		var distance := from_position.distance_squared_to(construction_site.global_position)
+		if distance < nearest_distance:
+			nearest = construction_site
+			nearest_distance = distance
+	return nearest
 
 
 func _on_citizen_arrived(citizen: Citizen) -> void:
@@ -1163,6 +1888,10 @@ func _on_citizen_arrived(citizen: Citizen) -> void:
 			_handle_fetch_log_arrival(citizen, task)
 		ActionCatalog.DELIVER_LOG:
 			_handle_deliver_log_arrival(citizen, task)
+		ActionCatalog.APPLY_BUILDING_BLOCK:
+			_resume_construction_work(citizen, task)
+		ActionCatalog.DELIVER_FOOD:
+			_handle_deliver_food_arrival(citizen, task)
 
 
 func _handle_chop_arrival(citizen: Citizen, task: Dictionary) -> void:
@@ -1208,9 +1937,53 @@ func _handle_excavation_arrival(citizen: Citizen, task: Dictionary) -> void:
 
 
 func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
+	var source_pile: Variant = task.get("source_pile")
+	if is_instance_valid(source_pile):
+		var pile := source_pile as PileStorage
+		var pile_construction_site: Variant = task.get("construction_site")
+		var contributor_id := citizen.get_instance_id()
+		var reservation_slot := -1
+		if is_instance_valid(pile_construction_site):
+			reservation_slot = (pile_construction_site as SupportConstructionSite).reserve_log(contributor_id)
+		if reservation_slot < 0 or not pile.take_log():
+			if is_instance_valid(pile_construction_site):
+				(pile_construction_site as SupportConstructionSite).release_log_reservation(contributor_id)
+			citizen.clear_work_assignment()
+			citizen.finish_task(UIText.CITIZEN_SUPPORT_NEEDS_LOG_STATUS_TEXT)
+			return
+		citizen.set_carrying_log(true)
+		_assign_navigation_task(citizen, (pile_construction_site as SupportConstructionSite).global_position, {
+			"kind": ActionCatalog.DELIVER_LOG,
+			"status_text_key": UIText.CITIZEN_CARRYING_LOG_STATUS_TEXT,
+			"construction_site": pile_construction_site,
+			"stored_log": true,
+			"reservation_slot": reservation_slot,
+		}, true)
+		return
 	var source_log: Variant = task.get("log")
 	var construction_site: Variant = task.get("construction_site")
-	if not is_instance_valid(source_log) or not is_instance_valid(construction_site) or not source_log.take_for_carry():
+	var pile_storage: Variant = task.get("pile_storage")
+	if is_instance_valid(source_log) and is_instance_valid(pile_storage) and source_log.take_for_carry():
+		citizen.set_carrying_log(true)
+		var destination_pile := pile_storage as PileStorage
+		_assign_navigation_task(citizen, destination_pile.nearest_delivery_world_position(citizen.global_position), {
+			"kind": ActionCatalog.DELIVER_LOG,
+			"status_text_key": UIText.CITIZEN_CARRYING_LOG_STATUS_TEXT,
+			"log": source_log,
+			"pile_storage": pile_storage,
+		}, true)
+		return
+	var contributor_id := citizen.get_instance_id()
+	var reservation_slot := -1
+	if is_instance_valid(construction_site):
+		reservation_slot = (construction_site as SupportConstructionSite).reserve_log(contributor_id)
+	if (
+		reservation_slot < 0
+		or not is_instance_valid(source_log)
+		or not source_log.take_for_carry()
+	):
+		if is_instance_valid(construction_site):
+			(construction_site as SupportConstructionSite).release_log_reservation(contributor_id)
 		citizen.finish_task(UIText.CITIZEN_LOG_UNAVAILABLE_STATUS_TEXT)
 		return
 	citizen.set_carrying_log(true)
@@ -1219,20 +1992,90 @@ func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 		"status_text_key": UIText.CITIZEN_CARRYING_LOG_STATUS_TEXT,
 		"log": source_log,
 		"construction_site": construction_site,
+		"reservation_slot": reservation_slot,
 	}, false)
 
 
 func _handle_deliver_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 	var carried_log: Variant = task.get("log")
 	var construction_site: Variant = task.get("construction_site")
-	citizen.set_carrying_log(false)
-	if is_instance_valid(carried_log):
-		carried_log.queue_free()
-	if is_instance_valid(construction_site):
-		construction_site.deliver_log()
-		_continue_build(citizen, construction_site)
-	else:
+	var pile_storage: Variant = task.get("pile_storage")
+	if is_instance_valid(pile_storage):
+		var pile := pile_storage as PileStorage
+		if not pile.store_log():
+			# A full Pile never consumes a seventeenth physical Log. Put it back
+			# beside the Citizen and stop the repeating collection assignment.
+			citizen.set_carrying_log(false)
+			if is_instance_valid(carried_log):
+				(carried_log as WorldItem).release_from_carry(citizen.global_position)
+			citizen.clear_work_assignment()
+			citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+			return
+		citizen.set_carrying_log(false)
+		if is_instance_valid(carried_log):
+			_items.erase(carried_log)
+			carried_log.queue_free()
+		_continue_persistent_assignment(citizen)
+		return
+	if not is_instance_valid(construction_site):
+		_return_unapplied_building_block(citizen, task)
 		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
+		return
+	_start_construction_work(citizen, construction_site as SupportConstructionSite, task)
+
+
+func _start_construction_work(
+	citizen: Citizen,
+	construction_site: SupportConstructionSite,
+	material_task: Dictionary
+) -> void:
+	var contributor_id := citizen.get_instance_id()
+	var reservation_slot := int(material_task.get("reservation_slot", -1))
+	if not construction_site.has_log_reservation(contributor_id) or reservation_slot < 0:
+		_return_unapplied_building_block(citizen, material_task)
+		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
+		return
+	citizen.task = {
+		"kind": ActionCatalog.APPLY_BUILDING_BLOCK,
+		"construction_site": construction_site,
+		"log": material_task.get("log"),
+		"stored_log": bool(material_task.get("stored_log", false)),
+		"reservation_slot": reservation_slot,
+	}
+	_begin_labour(
+		citizen,
+		construction_site,
+		ActionCatalog.APPLY_BUILDING_BLOCK,
+		UIText.CITIZEN_BUILDING_STATUS_TEXT,
+		CONSTRUCTION_WORK_SECONDS,
+		reservation_slot
+	)
+	var active_work: Dictionary = _active_work.get(citizen, {})
+	active_work["log"] = citizen.task.get("log")
+	active_work["stored_log"] = bool(citizen.task.get("stored_log", false))
+	active_work["construction_site"] = construction_site
+	_active_work[citizen] = active_work
+
+
+func _resume_construction_work(citizen: Citizen, task: Dictionary) -> void:
+	var construction_site := task.get("construction_site") as SupportConstructionSite
+	if not is_instance_valid(construction_site):
+		_return_unapplied_building_block(citizen, task)
+		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
+		return
+	_start_construction_work(citizen, construction_site, task)
+
+
+func _handle_deliver_food_arrival(citizen: Citizen, task: Dictionary) -> void:
+	var pile_storage: Variant = task.get("pile_storage")
+	var amount := int(task.get("amount", 0))
+	citizen.set_carrying_food(false)
+	if is_instance_valid(pile_storage) and (pile_storage as PileStorage).can_store_resource("calories"):
+		(pile_storage as PileStorage).store_calories(amount)
+		_calories = (pile_storage as PileStorage).stored_calories
+		_continue_persistent_assignment(citizen)
+		return
+	citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
 
 
 func _start_tree_cut_work(citizen: Citizen, tree: WorldItem) -> void:
@@ -1285,7 +2128,10 @@ func _begin_labour(
 	labour.resume(contributor_id)
 	var progress_bar := record.get("bar") as LabourProgressBar
 	if is_instance_valid(progress_bar):
-		progress_bar.visible = true
+		progress_bar.visible = not _is_selected_construction_total_progress_target(
+			target,
+			work_kind
+		)
 	_active_work[citizen] = {
 		"kind": work_kind,
 		"target": target,
@@ -1298,7 +2144,7 @@ func _begin_labour(
 
 
 func _labour_key(target: Node3D, work_kind: String, work_slot := -1) -> String:
-	if work_kind == ActionCatalog.CHOP_TREE and work_slot >= 0:
+	if work_slot >= 0 and work_kind in [ActionCatalog.CHOP_TREE, ActionCatalog.APPLY_BUILDING_BLOCK]:
 		return "%d:%s:%d" % [target.get_instance_id(), work_kind, work_slot]
 	return "%d:%s" % [target.get_instance_id(), work_kind]
 
@@ -1354,6 +2200,8 @@ func _update_labour(delta: float) -> void:
 		if is_instance_valid(citizen):
 			var unavailable_status := UIText.CITIZEN_TREE_UNAVAILABLE_STATUS_TEXT
 			match cancelled_kind:
+				ActionCatalog.APPLY_BUILDING_BLOCK:
+					unavailable_status = UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT
 				ActionCatalog.EXCAVATE:
 					unavailable_status = UIText.CITIZEN_EXCAVATION_UNAVAILABLE_STATUS_TEXT
 				ActionCatalog.HARVEST_BUSH:
@@ -1384,7 +2232,14 @@ func _update_labour_records(delta: float) -> void:
 		progress_bar.set_progress_ratio(labour.progress_ratio())
 		progress_bar.set_sun_screen_side(_sun_screen_side())
 		var world_anchor := target.global_position + Vector3.UP * 0.18
-		progress_bar.visible = labour.should_be_visible() and not _camera.is_position_behind(world_anchor)
+		progress_bar.visible = (
+			labour.should_be_visible()
+			and not _camera.is_position_behind(world_anchor)
+			and not _is_selected_construction_total_progress_target(
+				target,
+				str(record.get("kind", ""))
+			)
+		)
 		if progress_bar.visible:
 			var work_slot := int(record.get("work_slot", -1))
 			var slot_screen_offset := Vector2(0.0, -float(maxi(0, work_slot)) * 10.0)
@@ -1420,6 +2275,8 @@ func _complete_labour_job(labour_key: String, completing_citizen: Citizen) -> vo
 				citizen.finish_task()
 	_remove_labour_record(labour_key)
 	match work_kind:
+		ActionCatalog.APPLY_BUILDING_BLOCK:
+			_complete_construction_work(completing_citizen, target as SupportConstructionSite)
 		ActionCatalog.EXCAVATE:
 			_complete_excavation_work(completing_citizen, target as ExcavationSite)
 		ActionCatalog.HARVEST_BUSH:
@@ -1430,12 +2287,65 @@ func _complete_labour_job(labour_key: String, completing_citizen: Citizen) -> vo
 			_complete_tree_cut_work(completing_citizen, target as WorldItem)
 
 
+func _complete_construction_work(
+	citizen: Citizen,
+	construction_site: SupportConstructionSite
+) -> void:
+	if not is_instance_valid(citizen) or not is_instance_valid(construction_site):
+		return
+	var material_task := citizen.task.duplicate()
+	var contributor_id := citizen.get_instance_id()
+	if not construction_site.apply_reserved_log(contributor_id):
+		_return_unapplied_building_block(citizen, material_task)
+		citizen.finish_task(UIText.CITIZEN_CONSTRUCTION_SITE_UNAVAILABLE_STATUS_TEXT)
+		return
+	_consume_applied_building_block(citizen, material_task)
+	if str(citizen.work_assignment.get("kind", "")) == "construction":
+		_continue_build(citizen, construction_site)
+	else:
+		citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+
+
+func _consume_applied_building_block(citizen: Citizen, material_task: Dictionary) -> void:
+	citizen.set_carrying_log(false)
+	var carried_log := material_task.get("log") as WorldItem
+	if is_instance_valid(carried_log):
+		_items.erase(carried_log)
+		carried_log.queue_free()
+
+
+func _return_unapplied_building_block(citizen: Citizen, material_task: Dictionary) -> void:
+	if not is_instance_valid(citizen):
+		return
+	var construction_site := material_task.get("construction_site") as SupportConstructionSite
+	if is_instance_valid(construction_site):
+		construction_site.release_log_reservation(citizen.get_instance_id())
+	citizen.set_carrying_log(false)
+	if bool(material_task.get("stored_log", false)):
+		if is_instance_valid(_starting_pile):
+			if not _starting_pile.store_log():
+				_spawn_item("log", citizen.global_position)
+		return
+	var carried_log := material_task.get("log") as WorldItem
+	if is_instance_valid(carried_log):
+		carried_log.release_from_carry(citizen.global_position)
+
+
 func _complete_bush_harvest_work(citizen: Citizen, bush: WorldItem) -> void:
 	if not is_instance_valid(citizen) or not is_instance_valid(bush):
 		return
+	_mark_streamed_entity_dirty(bush)
 	if bush.harvest():
-		_calories += 1
-		citizen.finish_task(UIText.CITIZEN_HARVESTED_CALORIE_STATUS_TEXT)
+		if is_instance_valid(_starting_pile):
+			citizen.set_carrying_food(true)
+			_assign_navigation_task(citizen, _starting_pile.nearest_delivery_world_position(citizen.global_position), {
+				"kind": ActionCatalog.DELIVER_FOOD,
+				"status_text_key": UIText.CITIZEN_CARRYING_FOOD_STATUS_TEXT,
+				"pile_storage": _starting_pile,
+				"amount": 1,
+			}, true)
+		else:
+			citizen.finish_task(UIText.CITIZEN_HARVESTED_CALORIE_STATUS_TEXT)
 	else:
 		citizen.finish_task(UIText.CITIZEN_BUSH_REGROWING_STATUS_TEXT)
 
@@ -1443,12 +2353,35 @@ func _complete_bush_harvest_work(citizen: Citizen, bush: WorldItem) -> void:
 func _complete_cactus_collection_work(citizen: Citizen, cactus: WorldItem) -> void:
 	if not is_instance_valid(citizen) or not is_instance_valid(cactus):
 		return
+	if not is_instance_valid(_starting_pile) or not _starting_pile.can_store_resource("water"):
+		citizen.finish_task(UIText.CITIZEN_WATER_NEEDS_VESSEL_STATUS_TEXT)
+		return
+	_mark_streamed_entity_removed(cactus)
+	var cactus_world_unit := _world_unit_cell(cactus.global_position)
+	_occupied_static_world_units.erase(cactus_world_unit)
+	_items.erase(cactus)
 	var collected_water := cactus.collect_water()
 	if collected_water > 0:
 		_water += collected_water
 		citizen.finish_task(UIText.CITIZEN_COLLECTED_WATER_STATUS_TEXT)
 	else:
 		citizen.finish_task(UIText.CITIZEN_CACTUS_UNAVAILABLE_STATUS_TEXT)
+
+
+func _mark_streamed_entity_removed(item: WorldItem) -> void:
+	var entity_id := str(item.get_meta("stream_entity_id", ""))
+	if not entity_id.is_empty():
+		_streamed_entity_tombstones[entity_id] = true
+		_streamed_item_states.erase(entity_id)
+	var stream_chunk: Variant = item.get_meta("stream_chunk", null)
+	if stream_chunk is Vector2i and _streamed_items_by_chunk.has(stream_chunk):
+		var streamed_items: Array = _streamed_items_by_chunk[stream_chunk]
+		streamed_items.erase(item)
+
+
+func _mark_streamed_entity_dirty(item: WorldItem) -> void:
+	if not str(item.get_meta("stream_entity_id", "")).is_empty():
+		item.set_meta("stream_dirty", true)
 
 
 func _complete_excavation_work(citizen: Citizen, excavation_site: ExcavationSite) -> void:
@@ -1468,20 +2401,104 @@ func _complete_excavation_work(citizen: Citizen, excavation_site: ExcavationSite
 func _complete_tree_cut_work(citizen: Citizen, tree: WorldItem) -> void:
 	if not is_instance_valid(citizen) or not is_instance_valid(tree):
 		return
+	_mark_streamed_entity_dirty(tree)
 	var tree_position := tree.global_position
 	var cut_result: Dictionary = tree.cut_top_log()
 	if cut_result.is_empty():
 		citizen.finish_task(UIText.CITIZEN_TREE_UNAVAILABLE_STATUS_TEXT)
 		return
-	_spawn_item(
+	var dropped_log := _spawn_item(
 		"log",
 		cut_result.get("drop_position", tree_position),
 		int(cut_result.get("log_detail_seed", 1))
 	)
-	citizen.finish_task(UIText.CITIZEN_CUT_LOG_STATUS_TEXT)
+	if is_instance_valid(dropped_log) and is_instance_valid(_starting_pile):
+		_assign_navigation_task(citizen, dropped_log.global_position, {
+			"kind": ActionCatalog.FETCH_LOG,
+			"status_text_key": UIText.CITIZEN_FETCHING_LOG_STATUS_TEXT,
+			"log": dropped_log,
+			"pile_storage": _starting_pile,
+		}, false)
+	else:
+		citizen.finish_task(UIText.CITIZEN_CUT_LOG_STATUS_TEXT)
 
 
-func _cancel_active_work(citizen: Citizen) -> void:
+func _continue_persistent_assignment(citizen: Citizen) -> void:
+	if not is_instance_valid(citizen) or citizen.is_sleeping():
+		return
+	match str(citizen.work_assignment.get("kind", "")):
+		ActionCatalog.CHOP_TREE:
+			var tree_and_slot := _nearest_available_tree_work(citizen.global_position)
+			var next_tree := tree_and_slot.get("tree") as WorldItem
+			if is_instance_valid(next_tree):
+				_order_chop(
+					citizen,
+					next_tree,
+					int(tree_and_slot.get("work_slot", -1)),
+					"",
+					true
+				)
+				return
+		ActionCatalog.HARVEST_BUSH:
+			var next_bush := _nearest_available_bush(citizen.global_position)
+			if is_instance_valid(next_bush):
+				_order_harvest(citizen, next_bush, true)
+				return
+		"construction":
+			_continue_build(citizen, _nearest_incomplete_construction_site(citizen.global_position))
+			return
+	citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+
+
+func _nearest_available_tree_work(from_position: Vector3) -> Dictionary:
+	var nearest_tree: WorldItem
+	var nearest_slot := -1
+	var nearest_distance := INF
+	for item in _items:
+		if (
+			not is_instance_valid(item)
+			or not item.visible
+			or item.item_kind not in ["tree", "dead_tree", "palm_tree"]
+			or item.tree_log_count <= 0
+		):
+			continue
+		var work_slot := _next_available_tree_work_slot(item)
+		if work_slot < 0:
+			continue
+		var distance := from_position.distance_squared_to(item.global_position)
+		if distance < nearest_distance:
+			nearest_tree = item
+			nearest_slot = work_slot
+			nearest_distance = distance
+	return {"tree": nearest_tree, "work_slot": nearest_slot}
+
+
+func _nearest_available_bush(from_position: Vector3) -> WorldItem:
+	var reserved_bushes: Dictionary = {}
+	for citizen in _citizens:
+		if is_instance_valid(citizen) and str(citizen.task.get("kind", "")) == ActionCatalog.HARVEST_BUSH:
+			var reserved_target: Variant = citizen.task.get("target")
+			if is_instance_valid(reserved_target):
+				reserved_bushes[reserved_target] = true
+	var nearest: WorldItem
+	var nearest_distance := INF
+	for item in _items:
+		if (
+			not is_instance_valid(item)
+			or not item.visible
+			or item.item_kind != "bush"
+			or not item.can_harvest()
+			or reserved_bushes.has(item)
+		):
+			continue
+		var distance := from_position.distance_squared_to(item.global_position)
+		if distance < nearest_distance:
+			nearest = item
+			nearest_distance = distance
+	return nearest
+
+
+func _cancel_active_work(citizen: Citizen, preserve_carried_material := false) -> void:
 	if not _active_work.has(citizen):
 		return
 	var work: Dictionary = _active_work[citizen]
@@ -1490,6 +2507,12 @@ func _cancel_active_work(citizen: Citizen) -> void:
 	var labour := record.get("labour") as AppliedLabour
 	if labour != null:
 		labour.interrupt(int(work.get("contributor_id", 0)))
+	if (
+		str(work.get("kind", "")) == ActionCatalog.APPLY_BUILDING_BLOCK
+		and not preserve_carried_material
+	):
+		_return_unapplied_building_block(citizen, work)
+		_remove_labour_record(labour_key)
 	_active_work.erase(citizen)
 	if is_instance_valid(citizen):
 		citizen.set_chopping(false)
@@ -1497,9 +2520,22 @@ func _cancel_active_work(citizen: Citizen) -> void:
 
 func _create_labour_progress_bar(required_seconds: float) -> LabourProgressBar:
 	var progress_bar := LabourProgressBarScript.new() as LabourProgressBar
-	progress_bar.configure(required_seconds, UI_OUTLINE_PIXELS, Palette.WOMAN_CLOTHING)
+	progress_bar.configure(required_seconds, VisualTokens.OUTLINE_PIXELS, Palette.WOMAN_CLOTHING)
 	_world_progress_layer.add_child(progress_bar)
 	return progress_bar
+
+
+func _is_selected_construction_total_progress_target(
+	target: Node3D,
+	work_kind: String
+) -> bool:
+	return (
+		work_kind == ActionCatalog.APPLY_BUILDING_BLOCK
+		and is_instance_valid(_selected_building)
+		and target == _selected_building
+		and _selected_world_object == _selected_building
+		and _selected_building.is_planned()
+	)
 
 
 func _remove_labour_record(labour_key: String) -> void:
@@ -1510,19 +2546,6 @@ func _remove_labour_record(labour_key: String) -> void:
 	if is_instance_valid(progress_bar):
 		progress_bar.queue_free()
 	_labour_records.erase(labour_key)
-
-
-func _nearest_available_log(from_position: Vector3) -> WorldItem:
-	var nearest: WorldItem
-	var nearest_distance := INF
-	for item in _items:
-		if not is_instance_valid(item) or not item.is_available_log():
-			continue
-		var distance := from_position.distance_squared_to(item.global_position)
-		if distance < nearest_distance:
-			nearest = item
-			nearest_distance = distance
-	return nearest
 
 
 func _raycast(screen_position: Vector2) -> Dictionary:
@@ -1559,6 +2582,9 @@ func _update_hover_tooltip() -> void:
 		return
 	var collider: Node = hit.get("collider") as Node
 	var world_object: Variant = _world_object_for(collider)
+	if not _hover_target_is_revealed(hit, world_object):
+		_hide_hover_tooltip_behind_fog()
+		return
 	var display_name: String = _hover_display_name(world_object, collider)
 	if display_name.is_empty():
 		_reset_hover_candidate()
@@ -1582,12 +2608,68 @@ func _update_hover_tooltip() -> void:
 	_hover_tooltip.reset_size()
 	var tooltip_size := _hover_tooltip.get_combined_minimum_size()
 	_hover_tooltip.size = tooltip_size
-	var tooltip_position := mouse_position + Vector2(18.0, -tooltip_size.y - 18.0)
 	var viewport_size := Vector2(get_viewport().get_visible_rect().size)
-	tooltip_position.x = clampf(tooltip_position.x, 8.0, maxf(8.0, viewport_size.x - tooltip_size.x - 8.0))
-	tooltip_position.y = clampf(tooltip_position.y, 8.0, maxf(8.0, viewport_size.y - tooltip_size.y - 8.0))
-	_hover_tooltip.position = tooltip_position
+	_hover_tooltip.position = _world_tooltip_position(
+		mouse_position,
+		tooltip_size,
+		viewport_size
+	)
 	_hover_target_visible = true
+
+
+func _hover_target_is_revealed(hit: Dictionary, world_object: Variant) -> bool:
+	var hit_position: Vector3 = hit.get("position", Vector3.ZERO)
+	if not _is_world_position_revealed(hit_position):
+		return false
+	if world_object is Node3D:
+		return _is_world_position_revealed((world_object as Node3D).global_position)
+	return true
+
+
+func _hide_hover_tooltip_behind_fog() -> void:
+	_reset_hover_candidate()
+	_hover_alpha = 0.0
+	if is_instance_valid(_hover_tooltip):
+		_hover_tooltip.modulate.a = 0.0
+		_hover_tooltip.visible = false
+
+
+func _world_tooltip_position(
+	pointer_position: Vector2,
+	tooltip_size: Vector2,
+	viewport_size: Vector2
+) -> Vector2:
+	var horizontal_offset := 18.0
+	var vertical_offset := -tooltip_size.y - 18.0
+	var horizontal_threshold := maxf(
+		TOOLTIP_EDGE_THRESHOLD_PIXELS,
+		tooltip_size.x + 26.0
+	)
+	var vertical_threshold := maxf(
+		TOOLTIP_EDGE_THRESHOLD_PIXELS,
+		tooltip_size.y + 26.0
+	)
+	# Every edge points the label back towards the screen centre. At corners the
+	# horizontal and vertical decisions combine, keeping the custom cursor and
+	# its label together without clipping either one.
+	if pointer_position.x >= viewport_size.x - horizontal_threshold:
+		horizontal_offset = -tooltip_size.x - 18.0
+	if pointer_position.y <= vertical_threshold:
+		vertical_offset = 18.0
+	elif pointer_position.y >= viewport_size.y - vertical_threshold:
+		vertical_offset = -tooltip_size.y - 18.0
+	var resolved_position := pointer_position + Vector2(horizontal_offset, vertical_offset)
+	resolved_position.x = clampf(
+		resolved_position.x,
+		8.0,
+		maxf(8.0, viewport_size.x - tooltip_size.x - 8.0)
+	)
+	resolved_position.y = clampf(
+		resolved_position.y,
+		8.0,
+		maxf(8.0, viewport_size.y - tooltip_size.y - 8.0)
+	)
+	return resolved_position
 
 
 func _reset_hover_candidate() -> void:
@@ -1609,9 +2691,11 @@ func _hover_display_name(world_object: Variant, collider: Node) -> String:
 	if world_object is Citizen:
 		return UIText.text(UIText.CITIZEN_NAME_TEXT)
 	if world_object is SupportConstructionSite:
-		return UIText.text(UIText.SUPPORT_NAME_TEXT)
+		return (world_object as SupportConstructionSite).hover_text()
 	if world_object is ExcavationSite:
 		return UIText.text(UIText.EXCAVATION_NAME_TEXT)
+	if world_object is PileStorage:
+		return UIText.text(UIText.PILE_NAME_TEXT)
 	if world_object is WorldItem:
 		var item := world_object as WorldItem
 		if item.item_kind in ["tree", "dead_tree", "palm_tree"]:
@@ -1656,6 +2740,12 @@ func _hover_debug_text(world_object: Variant, collider: Node, hit: Dictionary) -
 			support.global_position.x,
 			support.global_position.z,
 		])
+	if world_object is PileStorage:
+		var pile := world_object as PileStorage
+		return UIText.text(UIText.PILE_DEBUG_HOVER_TEXT, [
+			pile.stored_logs,
+			pile.stored_calories,
+		])
 	if world_object is WorldItem:
 		var item := world_object as WorldItem
 		return UIText.text(UIText.WORLD_ITEM_DEBUG_HOVER_TEXT, [
@@ -1672,12 +2762,10 @@ func _snap_to_world_unit(world_position: Vector3) -> Vector3:
 
 
 func _seed_world() -> void:
+	_spawn_starting_pile()
 	_seed_bush_patches()
 	_seed_desert_resource_patches()
 	_seed_tree_distribution()
-
-	for spawn_position in [Vector3(-1.0, 0, 3.0), Vector3(0.4, 0, 3.0), Vector3(1.8, 0, 3.0), Vector3(3.2, 0, 3.0), Vector3(-1.0, 0, 4.0), Vector3(0.4, 0, 4.0)]:
-		_spawn_item("log", spawn_position)
 
 	_spawn_citizen(Vector3(-1.5, 0.0, 0.5))
 	_spawn_citizen(Vector3(0.5, 0.0, 1.5))
@@ -1686,6 +2774,19 @@ func _seed_world() -> void:
 	_selected_citizen.status_text_arguments.clear()
 	_camera_focus = _selected_citizen.global_position
 	_update_camera_transform()
+
+
+func _spawn_starting_pile() -> void:
+	_starting_pile = PileStorageScript.new() as PileStorage
+	_starting_pile.configure_footprint([
+		Vector2i(0, 0), Vector2i(1, 0),
+		Vector2i(0, 1), Vector2i(1, 1),
+	])
+	_starting_pile.configure_starting_inventory(6)
+	add_child(_starting_pile)
+	_starting_pile.global_position = Vector3(1.5, 0.0, 3.5)
+	for pile_cell in _starting_pile.world_footprint_cells():
+		_occupied_static_world_units[pile_cell] = true
 
 
 func _spawn_tree_in_tile(tile: Vector2i, seed_value: int, slot: int) -> void:
@@ -1777,7 +2878,7 @@ func _seed_bush_patches() -> void:
 
 
 func _spawn_bush_in_world_unit(world_unit: Vector2i, seed_value: int) -> void:
-	if _occupied_bush_world_units.has(world_unit):
+	if _occupied_static_world_units.has(world_unit):
 		return
 	if is_instance_valid(_grass_renderer) and _grass_renderer.has_grass_in_world_unit(world_unit):
 		return
@@ -1838,7 +2939,7 @@ func _seeded_offset(seed_value: int, maximum: float) -> float:
 	return DeterministicRandomScript.signed_offset(seed_value, maximum)
 
 
-func _spawn_item(kind: String, world_position: Vector3, explicit_detail_seed := 0) -> void:
+func _spawn_item(kind: String, world_position: Vector3, explicit_detail_seed := 0) -> WorldItem:
 	var item := WorldItem.new()
 	item.set_simulation_speed(_simulation_speed)
 	var detail_seed := explicit_detail_seed if explicit_detail_seed != 0 else _coordinate_seed(
@@ -1850,8 +2951,9 @@ func _spawn_item(kind: String, world_position: Vector3, explicit_detail_seed := 
 	add_child(item)
 	item.global_position = world_position
 	_items.append(item)
-	if _fog_image != null:
+	if not _chunk_fog_images.is_empty():
 		item.visible = _is_world_position_revealed(item.global_position)
+	return item
 
 
 func _spawn_citizen(world_position: Vector3) -> void:
@@ -1865,24 +2967,179 @@ func _spawn_citizen(world_position: Vector3) -> void:
 
 
 func _create_ground() -> void:
-	var ground_mesh := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(BACKGROUND_HALF_EXTENT * 2.0, BACKGROUND_HALF_EXTENT * 2.0)
-	ground_mesh.mesh = plane
 	_ground_material = _terrain_material(Palette.SAND_SURFACE)
+	_world_chunks_root = Node3D.new()
+	_world_chunks_root.name = "StreamedWorldChunks"
+	add_child(_world_chunks_root)
+	_update_excavated_ground_mask()
+
+
+func _update_world_streaming(force := false) -> void:
+	if not is_instance_valid(_world_chunks_root):
+		return
+	var required_chunks := WorldStreamerScript.required_chunks(
+		_streaming_anchor_positions(),
+		WorldStreamerScript.PRESENTATION_RADIUS_CHUNKS
+	)
+	for chunk_value in required_chunks:
+		var chunk: Vector2i = chunk_value
+		if force or not _loaded_chunks.has(chunk):
+			_load_world_chunk(chunk)
+	var unload_candidates: Array[Vector2i] = []
+	for chunk_value in _loaded_chunks:
+		var loaded_chunk: Vector2i = chunk_value
+		if not required_chunks.has(loaded_chunk):
+			unload_candidates.append(loaded_chunk)
+	for chunk in unload_candidates:
+		_unload_world_chunk(chunk)
+
+
+func _streaming_anchor_positions() -> Array[Vector3]:
+	var anchors: Array[Vector3] = [_camera_focus]
+	for citizen in _citizens:
+		if is_instance_valid(citizen):
+			anchors.append(citizen.global_position)
+	if is_instance_valid(_selected_world_object):
+		anchors.append(_selected_world_object.global_position)
+	for work_value in _active_work.values():
+		var target := (work_value as Dictionary).get("target") as Node3D
+		if is_instance_valid(target):
+			anchors.append(target.global_position)
+	return anchors
+
+
+func _load_world_chunk(chunk: Vector2i) -> void:
+	if _loaded_chunks.has(chunk):
+		return
+	var chunk_root := Node3D.new()
+	chunk_root.name = "WorldChunk_%d_%d" % [chunk.x, chunk.y]
+	_world_chunks_root.add_child(chunk_root)
+	_create_ground_chunk(chunk, chunk_root)
+	_create_fog_chunk(chunk, chunk_root)
+	_loaded_chunks[chunk] = chunk_root
+
+	var streamed_items: Array[WorldItem] = []
+	for entity_definition in WorldStreamerScript.generated_surface_entities(
+		chunk,
+		_world_generation_profile.world_seed,
+		_world_generation_profile.generator_version
+	):
+		var world_unit: Vector2i = entity_definition["world_unit"]
+		var item_kind := str(entity_definition["kind"])
+		var entity_id := str(entity_definition["id"])
+		if _streamed_entity_tombstones.has(entity_id):
+			continue
+		if item_kind == "bush" and GrassRendererScript.generated_grass_at(world_unit):
+			continue
+		if _occupied_static_world_units.has(world_unit):
+			continue
+		_occupied_static_world_units[world_unit] = true
+		if item_kind == "bush":
+			_occupied_bush_world_units[world_unit] = true
+		var detail_seed := int(entity_definition["detail_seed"])
+		var offset := Vector2(
+			_seeded_offset(detail_seed + 31, 0.11),
+			_seeded_offset(detail_seed + 59, 0.11)
+		)
+		var item := _spawn_item(
+			item_kind,
+			Vector3(world_unit.x + 0.5 + offset.x, 0.0, world_unit.y + 0.5 + offset.y),
+			detail_seed
+		)
+		item.set_meta("stream_chunk", chunk)
+		item.set_meta("stream_entity_id", entity_id)
+		item.set_meta("stream_dirty", false)
+		if _streamed_item_states.has(entity_id):
+			var saved_record := _streamed_item_states[entity_id] as Dictionary
+			item.restore_stream_state(saved_record.get("state", {}))
+			item.advance_stream_time(maxf(0.0, _elapsed - float(saved_record.get("saved_at", _elapsed))))
+			item.set_meta("stream_dirty", true)
+		else:
+			item.advance_generated_age(_elapsed)
+		streamed_items.append(item)
+	_streamed_items_by_chunk[chunk] = streamed_items
+	if is_instance_valid(_grass_renderer):
+		_grass_renderer.load_world_chunk(chunk, _grass_exclusions_in_chunk(chunk))
+
+
+func _create_ground_chunk(chunk: Vector2i, parent: Node3D) -> void:
+	var chunk_origin := WorldStreamerScript.chunk_origin(chunk)
+	var chunk_centre := Vector3(
+		chunk_origin.x + WorldStreamerScript.CHUNK_SIZE * 0.5,
+		0.0,
+		chunk_origin.y + WorldStreamerScript.CHUNK_SIZE * 0.5
+	)
+	var ground_mesh := MeshInstance3D.new()
+	ground_mesh.name = "Ground"
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(WorldStreamerScript.CHUNK_SIZE, WorldStreamerScript.CHUNK_SIZE)
+	ground_mesh.mesh = plane
+	ground_mesh.position = chunk_centre
 	ground_mesh.material_override = _ground_material
-	add_child(ground_mesh)
+	parent.add_child(ground_mesh)
 
 	var ground_body := StaticBody3D.new()
+	ground_body.name = "GroundCollision"
+	ground_body.position = chunk_centre
 	ground_body.set_meta("world_kind", "ground")
+	ground_body.set_meta("world_chunk", chunk)
 	var ground_shape := CollisionShape3D.new()
 	var ground_box := BoxShape3D.new()
-	ground_box.size = Vector3(BACKGROUND_HALF_EXTENT * 2.0, 0.1, BACKGROUND_HALF_EXTENT * 2.0)
+	ground_box.size = Vector3(WorldStreamerScript.CHUNK_SIZE, 0.1, WorldStreamerScript.CHUNK_SIZE)
 	ground_shape.shape = ground_box
 	ground_shape.position.y = -0.05
 	ground_body.add_child(ground_shape)
-	add_child(ground_body)
-	_update_excavated_ground_mask()
+	parent.add_child(ground_body)
+
+
+func _unload_world_chunk(chunk: Vector2i) -> void:
+	if not _loaded_chunks.has(chunk):
+		return
+	var streamed_items: Array = _streamed_items_by_chunk.get(chunk, [])
+	for item_value in streamed_items:
+		if not is_instance_valid(item_value):
+			continue
+		var item := item_value as WorldItem
+		var entity_id := str(item.get_meta("stream_entity_id", ""))
+		if not entity_id.is_empty() and bool(item.get_meta("stream_dirty", false)):
+			_streamed_item_states[entity_id] = {
+				"state": item.stream_state(),
+				"saved_at": _elapsed,
+			}
+		var world_unit := _world_unit_cell(item.global_position)
+		_occupied_static_world_units.erase(world_unit)
+		if item.item_kind == "bush":
+			_occupied_bush_world_units.erase(world_unit)
+		_items.erase(item)
+		item.queue_free()
+	_streamed_items_by_chunk.erase(chunk)
+	if is_instance_valid(_grass_renderer):
+		_grass_renderer.unload_world_chunk(chunk)
+	_chunk_fog_images.erase(chunk)
+	_chunk_fog_textures.erase(chunk)
+	_chunk_fog_materials.erase(chunk)
+	var chunk_root := _loaded_chunks[chunk] as Node3D
+	_loaded_chunks.erase(chunk)
+	if is_instance_valid(chunk_root):
+		chunk_root.queue_free()
+
+
+func _grass_excluded_world_units() -> Dictionary:
+	var exclusions := _occupied_bush_world_units.duplicate()
+	if is_instance_valid(_starting_pile):
+		for pile_cell in _starting_pile.world_footprint_cells():
+			exclusions[pile_cell] = true
+	return exclusions
+
+
+func _grass_exclusions_in_chunk(chunk: Vector2i) -> Dictionary:
+	var exclusions: Dictionary = {}
+	var bounds := WorldStreamerScript.chunk_world_bounds(chunk)
+	for world_unit_value in _grass_excluded_world_units():
+		var world_unit: Vector2i = world_unit_value
+		if bounds.has_point(world_unit):
+			exclusions[world_unit] = true
+	return exclusions
 
 
 func _update_excavated_ground_mask() -> void:
@@ -1917,14 +3174,14 @@ func _create_excavated_pit(world_cell: Vector2i) -> void:
 func _create_pit_piece(
 	parent: Node3D,
 	size: Vector3,
-	position: Vector3,
+	local_position: Vector3,
 	material: Material
 ) -> void:
 	var piece := MeshInstance3D.new()
 	var piece_mesh := BoxMesh.new()
 	piece_mesh.size = size
 	piece.mesh = piece_mesh
-	piece.position = position
+	piece.position = local_position
 	piece.material_override = material
 	piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	parent.add_child(piece)
@@ -1949,14 +3206,14 @@ func _update_camera_pan(delta: float) -> void:
 	var input_length := Vector2(horizontal, vertical).length()
 	if input_length <= 0.0:
 		return
+	_cancel_camera_reset_tween()
+	_cancel_citizen_camera_tween()
 	var camera_offset := _current_camera_offset()
 	var forward := Vector3(-camera_offset.x, 0.0, -camera_offset.z).normalized()
 	var right := Vector3(-forward.z, 0.0, forward.x)
 	var movement := (right * horizontal + forward * vertical).normalized()
 	var zoom_scale := _camera_size / CAMERA_MINIMUM_SIZE
 	_camera_focus += movement * CAMERA_PAN_SPEED * zoom_scale * delta
-	_camera_focus.x = clampf(_camera_focus.x, -CAMERA_FOCUS_LIMIT, CAMERA_FOCUS_LIMIT)
-	_camera_focus.z = clampf(_camera_focus.z, -CAMERA_FOCUS_LIMIT, CAMERA_FOCUS_LIMIT)
 	_update_camera_transform()
 
 
@@ -1966,10 +3223,12 @@ func _update_camera_transform() -> void:
 	_camera.global_position = _camera_focus + _current_camera_offset()
 	_camera.size = _camera_size
 	_camera.look_at(_camera_focus, Vector3.UP)
-	_update_compass_camera()
+	_compass_widget.update_camera(_current_camera_offset())
 
 
 func _adjust_camera_zoom(size_delta: float) -> void:
+	_cancel_camera_reset_tween()
+	_cancel_citizen_camera_tween()
 	_camera_size = clampf(
 		_camera_size + size_delta,
 		CAMERA_MINIMUM_SIZE,
@@ -1991,6 +3250,7 @@ func _current_camera_offset() -> Vector3:
 func _create_clouds() -> void:
 	_clouds_root = Node3D.new()
 	_clouds_root.name = "CloudLayer"
+	_clouds_root.visible = CLOUDS_ENABLED
 	add_child(_clouds_root)
 	for cloud_index in 8:
 		var cloud := Node3D.new()
@@ -2025,14 +3285,23 @@ func _create_clouds() -> void:
 
 
 func _update_clouds(delta: float) -> void:
+	if not CLOUDS_ENABLED:
+		return
 	for cloud_value in _cloud_velocities:
 		var cloud := cloud_value as Node3D
 		if not is_instance_valid(cloud):
 			continue
 		var velocity: Vector3 = _cloud_velocities[cloud]
 		cloud.position += velocity * delta
-		if cloud.position.x > BACKGROUND_HALF_EXTENT + 20.0:
-			cloud.position.x = -BACKGROUND_HALF_EXTENT - 20.0
+		var cloud_wrap_extent := BACKGROUND_HALF_EXTENT + 20.0
+		if cloud.position.x > _camera_focus.x + cloud_wrap_extent:
+			cloud.position.x = _camera_focus.x - cloud_wrap_extent
+		elif cloud.position.x < _camera_focus.x - cloud_wrap_extent:
+			cloud.position.x = _camera_focus.x + cloud_wrap_extent
+		if cloud.position.z > _camera_focus.z + cloud_wrap_extent:
+			cloud.position.z = _camera_focus.z - cloud_wrap_extent
+		elif cloud.position.z < _camera_focus.z - cloud_wrap_extent:
+			cloud.position.z = _camera_focus.z + cloud_wrap_extent
 	_cloud_shadow_offset += Vector2(0.42, 0.105) * delta
 	if is_instance_valid(_ground_material):
 		_ground_material.set_shader_parameter("cloud_shadow_offset", _cloud_shadow_offset)
@@ -2048,69 +3317,53 @@ func _update_clouds(delta: float) -> void:
 		_ground_material.set_shader_parameter("citizen_positions", visible_citizen_positions)
 
 
-func _create_fog_of_war() -> void:
-	_fog_image = Image.create(FOG_MASK_RESOLUTION, FOG_MASK_RESOLUTION, false, Image.FORMAT_R8)
-	_fog_image.fill(Color.BLACK)
-	_fog_texture = ImageTexture.create_from_image(_fog_image)
+func _create_fog_chunk(chunk: Vector2i, parent: Node3D) -> void:
+	var fog_resolution := int(WorldStreamerScript.CHUNK_SIZE / FOG_CELL_SIZE)
+	var fog_image := Image.create(fog_resolution, fog_resolution, false, Image.FORMAT_R8)
+	fog_image.fill(Color.BLACK)
+	var fog_cell_origin := WorldStreamerScript.chunk_origin(chunk) * int(1.0 / FOG_CELL_SIZE)
+	for local_x in fog_resolution:
+		for local_z in fog_resolution:
+			if _revealed_fog_cells.has(fog_cell_origin + Vector2i(local_x, local_z)):
+				fog_image.set_pixel(local_x, local_z, Color.WHITE)
+	var fog_texture := ImageTexture.create_from_image(fog_image)
+	var fog_material := ShaderMaterial.new()
+	fog_material.shader = FOG_SHADER
+	fog_material.set_shader_parameter("fog_mask", fog_texture)
+	fog_material.set_shader_parameter("fog_color", Palette.FOG_AND_SHADOW)
 
 	var fog_plane := PlaneMesh.new()
-	fog_plane.size = Vector2(WORLD_HALF_EXTENT * 2.0, WORLD_HALF_EXTENT * 2.0)
-	_fog_instance = MeshInstance3D.new()
-	_fog_instance.mesh = fog_plane
-	_fog_instance.position.y = 0.025
-	_fog_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var fog_colour := Palette.FOG_AND_SHADOW
-	var fog_shader := Shader.new()
-	fog_shader.code = """
-shader_type spatial;
-render_mode unshaded, cull_disabled;
-
-uniform sampler2D fog_mask : filter_linear, repeat_disable;
-uniform vec4 fog_color : source_color;
-uniform float world_half_extent;
-varying vec2 fog_uv;
-
-void vertex() {
-	vec3 world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	fog_uv = (world_position.xz + vec2(world_half_extent)) / (world_half_extent * 2.0);
-}
-
-void fragment() {
-	// Linear mask interpolation is used only to locate the binary contour.
-	// The rendered result still has no fractional alpha: every fragment is
-	// either exact fog colour or completely discarded.
-	float revealed = texture(fog_mask, fog_uv).r;
-	if (revealed >= 0.5) {
-		discard;
-	}
-	ALBEDO = fog_color.rgb;
-	ROUGHNESS = 1.0;
-}
-"""
-	_fog_material = ShaderMaterial.new()
-	_fog_material.shader = fog_shader
-	_fog_material.set_shader_parameter("fog_mask", _fog_texture)
-	_fog_material.set_shader_parameter("fog_color", fog_colour)
-	_fog_material.set_shader_parameter("world_half_extent", WORLD_HALF_EXTENT)
-	_fog_instance.material_override = _fog_material
-	add_child(_fog_instance)
-	_reveal_world_around_citizens()
+	fog_plane.size = Vector2(WorldStreamerScript.CHUNK_SIZE, WorldStreamerScript.CHUNK_SIZE)
+	var fog_instance := MeshInstance3D.new()
+	fog_instance.name = "Fog"
+	fog_instance.mesh = fog_plane
+	var chunk_origin := WorldStreamerScript.chunk_origin(chunk)
+	fog_instance.position = Vector3(
+		chunk_origin.x + WorldStreamerScript.CHUNK_SIZE * 0.5,
+		0.025,
+		chunk_origin.y + WorldStreamerScript.CHUNK_SIZE * 0.5
+	)
+	fog_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	fog_instance.material_override = fog_material
+	parent.add_child(fog_instance)
+	_chunk_fog_images[chunk] = fog_image
+	_chunk_fog_textures[chunk] = fog_texture
+	_chunk_fog_materials[chunk] = fog_material
 
 
 func _create_grass_renderer() -> void:
 	_grass_renderer = GrassRendererScript.new()
 	_grass_renderer.name = "GrassRenderer"
 	add_child(_grass_renderer)
-	_grass_renderer.setup(WORLD_HALF_EXTENT, FOG_CELL_SIZE, _occupied_bush_world_units)
+	# A zero extent selects streaming mode; candidates are built only for loaded
+	# 16×16 world chunks instead of preallocating a world-sized rectangle.
+	_grass_renderer.setup(0.0, FOG_CELL_SIZE, _grass_excluded_world_units())
 
 
 func _reveal_world_around_citizens() -> void:
-	if _fog_image == null:
-		return
 	var changed := false
 	var newly_revealed_cells: Array[Vector2i] = []
 	var fog_radius_in_cells := int(ceil(REVEAL_RADIUS / FOG_CELL_SIZE))
-	var half_cell_count := int(WORLD_HALF_EXTENT / FOG_CELL_SIZE)
 	for citizen in _citizens:
 		if not is_instance_valid(citizen):
 			continue
@@ -2121,8 +3374,6 @@ func _reveal_world_around_citizens() -> void:
 		)
 		for cell_x in range(citizen_cell.x - fog_radius_in_cells, citizen_cell.x + fog_radius_in_cells + 1):
 			for cell_z in range(citizen_cell.y - fog_radius_in_cells, citizen_cell.y + fog_radius_in_cells + 1):
-				if cell_x < -half_cell_count or cell_x >= half_cell_count or cell_z < -half_cell_count or cell_z >= half_cell_count:
-					continue
 				var fog_cell := Vector2i(cell_x, cell_z)
 				if _revealed_fog_cells.has(fog_cell):
 					continue
@@ -2137,20 +3388,37 @@ func _reveal_world_around_citizens() -> void:
 	if changed:
 		_fill_enclosed_world_unit_holes(newly_revealed_cells)
 		_paint_revealed_fog_cells(newly_revealed_cells)
-		_fog_texture.update(_fog_image)
 		_update_revealed_entity_visibility()
 		if is_instance_valid(_grass_renderer):
 			_grass_renderer.reveal_fog_cells(newly_revealed_cells)
 
 
 func _paint_revealed_fog_cells(newly_revealed_cells: Array[Vector2i]) -> void:
-	var half_cell_count := int(WORLD_HALF_EXTENT / FOG_CELL_SIZE)
+	var changed_chunks: Dictionary = {}
+	var fog_cells_per_world_unit := int(1.0 / FOG_CELL_SIZE)
+	var fog_resolution := WorldStreamerScript.CHUNK_SIZE * fog_cells_per_world_unit
 	for fog_cell in newly_revealed_cells:
-		var pixel_x := fog_cell.x + half_cell_count
-		var pixel_y := fog_cell.y + half_cell_count
-		if pixel_x < 0 or pixel_x >= FOG_MASK_RESOLUTION or pixel_y < 0 or pixel_y >= FOG_MASK_RESOLUTION:
+		var world_unit := Vector2i(
+			floori(float(fog_cell.x) * FOG_CELL_SIZE),
+			floori(float(fog_cell.y) * FOG_CELL_SIZE)
+		)
+		var chunk := WorldStreamerScript.chunk_for_world_unit(world_unit)
+		if not _chunk_fog_images.has(chunk):
 			continue
-		_fog_image.set_pixel(pixel_x, pixel_y, Color.WHITE)
+		var fog_origin := WorldStreamerScript.chunk_origin(chunk) * fog_cells_per_world_unit
+		var local_cell := fog_cell - fog_origin
+		if local_cell.x < 0 or local_cell.x >= fog_resolution or local_cell.y < 0 or local_cell.y >= fog_resolution:
+			continue
+		var chunk_image := _chunk_fog_images[chunk] as Image
+		chunk_image.set_pixel(local_cell.x, local_cell.y, Color.WHITE)
+		changed_chunks[chunk] = true
+		if not _discovered_fog_by_chunk.has(chunk):
+			_discovered_fog_by_chunk[chunk] = {}
+		(_discovered_fog_by_chunk[chunk] as Dictionary)[local_cell] = true
+	for chunk_value in changed_chunks:
+		var chunk: Vector2i = chunk_value
+		var chunk_texture := _chunk_fog_textures[chunk] as ImageTexture
+		chunk_texture.update(_chunk_fog_images[chunk] as Image)
 
 
 func _fill_enclosed_world_unit_holes(newly_revealed_cells: Array[Vector2i]) -> bool:
@@ -2167,10 +3435,6 @@ func _fill_enclosed_world_unit_holes(newly_revealed_cells: Array[Vector2i]) -> b
 	var filled_hole := false
 	for candidate_value in candidates:
 		var candidate: Vector2i = candidate_value
-		if candidate.x <= -int(WORLD_HALF_EXTENT) or candidate.x >= int(WORLD_HALF_EXTENT) - 1:
-			continue
-		if candidate.y <= -int(WORLD_HALF_EXTENT) or candidate.y >= int(WORLD_HALF_EXTENT) - 1:
-			continue
 		if _world_unit_fully_revealed(candidate):
 			continue
 		var surrounded := true
@@ -2210,6 +3474,8 @@ func _update_revealed_entity_visibility() -> void:
 	for item in _items:
 		if is_instance_valid(item):
 			item.visible = not item.is_carried and _is_world_position_revealed(item.global_position)
+	if is_instance_valid(_starting_pile):
+		_starting_pile.visible = _is_world_position_revealed(_starting_pile.global_position)
 	_refresh_planned_building_visibility()
 
 
@@ -2221,110 +3487,10 @@ func _is_world_position_revealed(world_position: Vector3) -> bool:
 	return _revealed_fog_cells.has(fog_cell)
 
 
-func _create_path_preview() -> void:
-	_path_overlay_layer = CanvasLayer.new()
-	_path_overlay_layer.name = "ProjectedRoutePreview"
-	_path_overlay_layer.layer = 90
-	add_child(_path_overlay_layer)
-
-
-func _ensure_path_screen_item(item_index: int) -> void:
-	while _path_screen_lines.size() <= item_index:
-		var route_line := Line2D.new()
-		route_line.name = "ContinuousRouteLine%d" % (_path_screen_lines.size() + 1)
-		route_line.width = CITIZEN_PATH_LINE_WIDTH_PIXELS
-		route_line.default_color = Color.WHITE
-		route_line.antialiased = false
-		route_line.joint_mode = Line2D.LINE_JOINT_BEVEL
-		route_line.begin_cap_mode = Line2D.LINE_CAP_NONE
-		route_line.end_cap_mode = Line2D.LINE_CAP_NONE
-		_path_overlay_layer.add_child(route_line)
-		_path_screen_lines.append(route_line)
-		var target_dot := Polygon2D.new()
-		target_dot.name = "RouteTargetDot%d" % (_path_screen_targets.size() + 1)
-		target_dot.color = Color.WHITE
-		var dot_points := PackedVector2Array()
-		for point_index in 12:
-			var angle := TAU * float(point_index) / 12.0
-			dot_points.append(Vector2(cos(angle), sin(angle)) * 5.0)
-		target_dot.polygon = dot_points
-		_path_overlay_layer.add_child(target_dot)
-		_path_screen_targets.append(target_dot)
-
-
-func _update_path_preview() -> void:
-	_update_citizen_selection_preview()
-	var visible_route_count := 0
-	for citizen in _selected_citizens:
-		if not is_instance_valid(citizen) or not citizen.has_active_route():
-			continue
-		var route_points := citizen.route_points()
-		if route_points.size() < 2:
-			continue
-		var screen_points := PackedVector2Array()
-		for route_point in route_points:
-			var raised_point := route_point + Vector3.UP * 0.09
-			if _camera.is_position_behind(raised_point):
-				screen_points.clear()
-				break
-			screen_points.append(_camera.unproject_position(raised_point).round())
-		if screen_points.size() < 2:
-			continue
-		_ensure_path_screen_item(visible_route_count)
-		var route_line := _path_screen_lines[visible_route_count]
-		var target_dot := _path_screen_targets[visible_route_count]
-		route_line.points = screen_points
-		route_line.visible = true
-		target_dot.position = screen_points[-1]
-		target_dot.visible = true
-		visible_route_count += 1
-	for hidden_index in range(visible_route_count, _path_screen_lines.size()):
-		_path_screen_lines[hidden_index].visible = false
-		_path_screen_targets[hidden_index].visible = false
-
-
-func _ensure_citizen_selection_screen_item(item_index: int) -> void:
-	while _citizen_selection_screen_lines.size() <= item_index:
-		var selection_line := Line2D.new()
-		selection_line.name = "CitizenSelectionCircle%d" % (
-			_citizen_selection_screen_lines.size() + 1
-		)
-		selection_line.width = CITIZEN_SELECTION_LINE_WIDTH_PIXELS
-		selection_line.default_color = Color.WHITE
-		selection_line.antialiased = false
-		selection_line.joint_mode = Line2D.LINE_JOINT_BEVEL
-		selection_line.begin_cap_mode = Line2D.LINE_CAP_NONE
-		selection_line.end_cap_mode = Line2D.LINE_CAP_NONE
-		_path_overlay_layer.add_child(selection_line)
-		_citizen_selection_screen_lines.append(selection_line)
-
-
-func _update_citizen_selection_preview() -> void:
-	var visible_selection_count := 0
-	for citizen in _selected_citizens:
-		if not is_instance_valid(citizen):
-			continue
-		var screen_points := PackedVector2Array()
-		for point_index in CITIZEN_SELECTION_POINT_COUNT + 1:
-			var angle := TAU * float(point_index) / float(CITIZEN_SELECTION_POINT_COUNT)
-			var world_point := citizen.global_position + Vector3(
-				cos(angle) * CITIZEN_SELECTION_RADIUS_WORLD,
-				0.045,
-				sin(angle) * CITIZEN_SELECTION_RADIUS_WORLD
-			)
-			if _camera.is_position_behind(world_point):
-				screen_points.clear()
-				break
-			screen_points.append(_camera.unproject_position(world_point).round())
-		if screen_points.size() != CITIZEN_SELECTION_POINT_COUNT + 1:
-			continue
-		_ensure_citizen_selection_screen_item(visible_selection_count)
-		var selection_line := _citizen_selection_screen_lines[visible_selection_count]
-		selection_line.points = screen_points
-		selection_line.visible = true
-		visible_selection_count += 1
-	for hidden_index in range(visible_selection_count, _citizen_selection_screen_lines.size()):
-		_citizen_selection_screen_lines[hidden_index].visible = false
+func _create_citizen_command_overlay() -> void:
+	_citizen_command_overlay = CitizenCommandOverlayScript.new()
+	_citizen_command_overlay.configure(_camera)
+	add_child(_citizen_command_overlay)
 
 
 func _create_environment() -> void:
@@ -2355,6 +3521,7 @@ func _create_environment() -> void:
 func _update_day_night() -> void:
 	var day_phase := fmod(_elapsed, DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS
 	var sun_height := sin(day_phase * TAU)
+	_set_citizens_sleeping(day_phase >= 0.5)
 	var daylight := smoothstep(-0.2, 0.2, sun_height)
 	var surface_colour := _day_cycle_colour(
 		day_phase,
@@ -2403,16 +3570,29 @@ func _update_day_night() -> void:
 				surface_colour,
 				_sun.global_transform.basis.z.normalized()
 			)
-	if is_instance_valid(_fog_material):
-		_fog_material.set_shader_parameter("fog_color", shadow_colour)
+	for fog_material_value in _chunk_fog_materials.values():
+		var fog_material := fog_material_value as ShaderMaterial
+		if is_instance_valid(fog_material):
+			fog_material.set_shader_parameter("fog_color", shadow_colour)
 	if is_instance_valid(_day_night_wheel):
 		_day_night_wheel.rotation = day_phase * TAU
-	if is_instance_valid(_compass_glass):
-		_compass_glass.visible = daylight > 0.08
-		_compass_glass.rotation.y = day_phase * TAU
-	if is_instance_valid(_compass_glass_mesh):
-		var reflection_width := lerpf(0.54, 0.1, clampf(maxf(sun_height, 0.0), 0.0, 1.0))
-		_compass_glass_mesh.size = Vector2(1.8, reflection_width)
+	_compass_widget.update_sun_reflection(daylight, day_phase, sun_height)
+
+
+func _set_citizens_sleeping(should_sleep: bool) -> void:
+	if _citizens_are_sleeping == should_sleep:
+		return
+	_citizens_are_sleeping = should_sleep
+	for citizen in _citizens:
+		if not is_instance_valid(citizen):
+			continue
+		if should_sleep:
+			_cancel_active_work(citizen, true)
+			citizen.set_sleeping(true)
+		else:
+			citizen.set_sleeping(false)
+			if citizen.task.is_empty() and not citizen.work_assignment.is_empty():
+				_continue_persistent_assignment(citizen)
 
 
 func _day_cycle_colour(
@@ -2496,7 +3676,7 @@ func _create_interface() -> void:
 	_rts_count_badge.name = "CitizenSelectionCountBadge"
 	_rts_count_badge.custom_minimum_size = Vector2(18.0, 18.0)
 	_rts_count_badge.clip_text = true
-	_rts_count_badge.add_theme_font_size_override("font_size", 11)
+	_rts_count_badge.add_theme_font_size_override("font_size", VisualTokens.SELECTION_COUNT_FONT_SIZE)
 	_goods_count_badge = _create_count_badge(
 		selection_layer,
 		Vector2(62.0, 20.0),
@@ -2509,7 +3689,7 @@ func _create_interface() -> void:
 	_day_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_day_label.position = Vector2(-27.0, 50.0)
 	_day_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_day_label.add_theme_font_size_override("font_size", 16)
+	_day_label.add_theme_font_size_override("font_size", VisualTokens.DAY_COUNT_FONT_SIZE)
 	_day_label.add_theme_color_override("font_color", Color.BLACK)
 	selection_layer.add_child(_day_label)
 	_create_day_night_wheel(selection_layer)
@@ -2527,28 +3707,28 @@ func _create_interface() -> void:
 	var title := Label.new()
 	title.text = UIText.text(UIText.PROTOTYPE_TITLE_TEXT)
 	title.position = Vector2(18, 16)
-	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_font_size_override("font_size", VisualTokens.DEBUG_TITLE_FONT_SIZE)
 	layer.add_child(title)
 
 	var instructions := Label.new()
 	instructions.text = UIText.text(UIText.PROTOTYPE_INSTRUCTIONS_TEXT)
 	instructions.position = Vector2(18, 52)
-	instructions.add_theme_font_size_override("font_size", 15)
+	instructions.add_theme_font_size_override("font_size", VisualTokens.DEBUG_INSTRUCTIONS_FONT_SIZE)
 	layer.add_child(instructions)
 
 	_ui_mode = Label.new()
 	_ui_mode.position = Vector2(18, 104)
-	_ui_mode.add_theme_font_size_override("font_size", 17)
+	_ui_mode.add_theme_font_size_override("font_size", VisualTokens.DEBUG_READOUT_FONT_SIZE)
 	layer.add_child(_ui_mode)
 
 	_ui_status = Label.new()
 	_ui_status.position = Vector2(18, 132)
-	_ui_status.add_theme_font_size_override("font_size", 17)
+	_ui_status.add_theme_font_size_override("font_size", VisualTokens.DEBUG_READOUT_FONT_SIZE)
 	layer.add_child(_ui_status)
 
 	_ui_resources = Label.new()
 	_ui_resources.position = Vector2(18, 160)
-	_ui_resources.add_theme_font_size_override("font_size", 17)
+	_ui_resources.add_theme_font_size_override("font_size", VisualTokens.DEBUG_READOUT_FONT_SIZE)
 	layer.add_child(_ui_resources)
 
 
@@ -2588,7 +3768,7 @@ func _create_day_night_wheel(parent: Node) -> void:
 	var sun_style := StyleBoxFlat.new()
 	sun_style.bg_color = Palette.SUN
 	sun_style.border_color = Color.BLACK
-	sun_style.set_border_width_all(int(UI_OUTLINE_PIXELS))
+	sun_style.set_border_width_all(int(VisualTokens.OUTLINE_PIXELS))
 	sun_style.corner_radius_top_left = 5
 	sun_style.corner_radius_top_right = 5
 	sun_style.corner_radius_bottom_left = 5
@@ -2598,80 +3778,25 @@ func _create_day_night_wheel(parent: Node) -> void:
 
 
 func _create_compass(parent: Node) -> void:
-	_compass_viewport = SubViewport.new()
-	_compass_viewport.name = "CompassViewport"
-	_compass_viewport.size = Vector2i(COMPASS_DIAMETER_PIXELS, COMPASS_DIAMETER_PIXELS)
-	_compass_viewport.transparent_bg = true
-	_compass_viewport.own_world_3d = true
-	_compass_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	add_child(_compass_viewport)
-
-	var compass_root := Node3D.new()
-	compass_root.name = "GroundParallelCompass"
-	_compass_viewport.add_child(compass_root)
-	_compass_hover_outline = _create_compass_hover_silhouette()
-	compass_root.add_child(_compass_hover_outline)
-	compass_root.add_child(_create_compass_side_wall(
-		0.9, 0.0, 0.54, 32, Palette.TOOL_METAL.darkened(0.28)
-	))
-	compass_root.add_child(_create_compass_ring(
-		0.9, 0.74, 32, Palette.TOOL_METAL, 0.54
-	))
-	compass_root.add_child(_create_compass_disc(
-		0.74, 32, Palette.FOG_AND_SHADOW.lightened(0.28), 0.42
-	))
-	compass_root.add_child(_create_compass_triangle(true))
-	compass_root.add_child(_create_compass_triangle(false))
-
-	_compass_glass = MeshInstance3D.new()
-	_compass_glass.name = "SemiTransparentSunGlassReflection"
-	_compass_glass_mesh = QuadMesh.new()
-	_compass_glass_mesh.size = Vector2(1.8, 0.14)
-	_compass_glass_mesh.orientation = PlaneMesh.FACE_Y
-	_compass_glass.mesh = _compass_glass_mesh
-	_compass_glass.position.y = 0.565
-	_compass_glass.material_override = _compass_material(Color(1.0, 1.0, 1.0, 0.5), true)
-	compass_root.add_child(_compass_glass)
-
-	_compass_camera = Camera3D.new()
-	_compass_camera.name = "CompassCamera"
-	_compass_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	_compass_camera.size = 2.35
-	_compass_camera.near = 0.05
-	_compass_camera.far = 20.0
-	_compass_camera.current = true
-	_compass_viewport.add_child(_compass_camera)
-	_update_compass_camera()
-
-	var compass_button := TextureButton.new()
-	compass_button.name = "ResetCameraCompass"
-	compass_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	compass_button.position = Vector2(-84.0, -84.0)
-	compass_button.size = Vector2(COMPASS_DIAMETER_PIXELS, COMPASS_DIAMETER_PIXELS)
-	compass_button.ignore_texture_size = true
-	compass_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	compass_button.texture_normal = _compass_viewport.get_texture()
-	compass_button.tooltip_text = UIText.text(UIText.COMPASS_BUTTON_TOOLTIP_TEXT)
-	compass_button.theme = PixelUI.tooltip_theme()
-	compass_button.pressed.connect(_reset_camera_from_compass)
-	compass_button.mouse_entered.connect(_set_compass_hover.bind(true))
-	compass_button.mouse_exited.connect(_set_compass_hover.bind(false))
-	compass_button.focus_entered.connect(_set_compass_hover.bind(true))
-	compass_button.focus_exited.connect(_set_compass_hover.bind(false))
-	parent.add_child(compass_button)
+	_compass_widget.mount(self, parent, _reset_camera_from_compass)
+	_compass_widget.update_camera(_current_camera_offset())
 
 
 func _create_build_stamp(parent: Node) -> void:
+	const EDGE_GAP := 11.0
+	const STAMP_SIZE := Vector2(420.0, 18.0)
 	_build_stamp_label = Label.new()
 	_build_stamp_label.name = "BuildStamp"
 	_build_stamp_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_build_stamp_label.position = Vector2(-520.0, -29.0)
-	_build_stamp_label.size = Vector2(420.0, 18.0)
+	_build_stamp_label.offset_left = -STAMP_SIZE.x - EDGE_GAP
+	_build_stamp_label.offset_top = -STAMP_SIZE.y - EDGE_GAP
+	_build_stamp_label.offset_right = -EDGE_GAP
+	_build_stamp_label.offset_bottom = -EDGE_GAP
 	_build_stamp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_stamp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_build_stamp_label.text = BuildInfo.inline_label()
-	_build_stamp_label.add_theme_font_size_override("font_size", 12)
-	_build_stamp_label.add_theme_color_override("font_color", Color("747e83"))
+	_build_stamp_label.text = BuildMetadata.inline_label()
+	_build_stamp_label.add_theme_font_size_override("font_size", VisualTokens.BUILD_STAMP_FONT_SIZE)
+	_build_stamp_label.add_theme_color_override("font_color", Color.WHITE)
 	parent.add_child(_build_stamp_label)
 
 
@@ -2683,7 +3808,7 @@ func _create_building_hotkey_hint(parent: Node) -> void:
 	var hint_style := StyleBoxFlat.new()
 	hint_style.bg_color = Color(0.02, 0.02, 0.02, 0.84)
 	hint_style.border_color = Color.WHITE
-	hint_style.set_border_width_all(int(UI_OUTLINE_PIXELS))
+	hint_style.set_border_width_all(int(VisualTokens.OUTLINE_PIXELS))
 	hint_style.set_corner_radius_all(0)
 	hint_style.content_margin_left = 7.0
 	hint_style.content_margin_right = 7.0
@@ -2695,7 +3820,7 @@ func _create_building_hotkey_hint(parent: Node) -> void:
 	_building_hotkey_hint_label.name = "RotateHotkey"
 	_building_hotkey_hint_label.text = UIText.text(UIText.BUILDING_ROTATE_HOTKEY_TEXT)
 	_building_hotkey_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_building_hotkey_hint_label.add_theme_font_size_override("font_size", 14)
+	_building_hotkey_hint_label.add_theme_font_size_override("font_size", VisualTokens.BUILDING_HOTKEY_FONT_SIZE)
 	_building_hotkey_hint_label.add_theme_color_override("font_color", Color.WHITE)
 	_building_hotkey_hint.add_child(_building_hotkey_hint_label)
 
@@ -2706,6 +3831,7 @@ func _update_building_hotkey_hint() -> void:
 	if (
 		not is_instance_valid(_selected_building)
 		or _selected_world_object != _selected_building
+		or not _selected_building.is_planned()
 		or _camera.is_position_behind(_selected_building.global_position)
 	):
 		_building_hotkey_hint.visible = false
@@ -2722,167 +3848,131 @@ func _update_building_hotkey_hint() -> void:
 	_building_hotkey_hint.visible = true
 
 
-func _create_compass_hover_silhouette() -> MeshInstance3D:
-	var outline_mesh := CylinderMesh.new()
-	outline_mesh.top_radius = 0.9
-	outline_mesh.bottom_radius = 0.9
-	outline_mesh.height = 0.54
-	outline_mesh.radial_segments = 32
-	outline_mesh.rings = 1
-	var outline := MeshInstance3D.new()
-	outline.name = "ViewDependentCompassHoverOutline"
-	outline.mesh = outline_mesh
-	outline.position.y = 0.27
-	outline.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var outline_shader := Shader.new()
-	outline_shader.code = """
-shader_type spatial;
-render_mode unshaded, cull_front;
-
-uniform float outline_pixels = 2.0;
-uniform vec2 viewport_size = vec2(72.0);
-
-void vertex() {
-	vec4 clip_position = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
-	vec3 view_normal = normalize((MODELVIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
-	vec2 projected_normal = (PROJECTION_MATRIX * vec4(view_normal, 0.0)).xy;
-	float normal_length = length(projected_normal);
-	if (normal_length > 0.0001) {
-		projected_normal /= normal_length;
-		clip_position.xy += projected_normal * clip_position.w * outline_pixels * 2.0 / viewport_size;
-	}
-	POSITION = clip_position;
-}
-
-void fragment() {
-	ALBEDO = vec3(1.0);
-}
-"""
-	var outline_material := ShaderMaterial.new()
-	outline_material.shader = outline_shader
-	outline_material.set_shader_parameter("outline_pixels", UI_OUTLINE_PIXELS)
-	outline_material.set_shader_parameter(
-		"viewport_size", Vector2(COMPASS_DIAMETER_PIXELS, COMPASS_DIAMETER_PIXELS)
-	)
-	outline.material_override = outline_material
-	outline.visible = false
-	return outline
-
-
-func _create_compass_disc(radius: float, side_count: int, colour: Color, height: float) -> MeshInstance3D:
-	var surface_tool := SurfaceTool.new()
-	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for side_index in side_count:
-		var angle_a := TAU * float(side_index) / float(side_count)
-		var angle_b := TAU * float(side_index + 1) / float(side_count)
-		surface_tool.add_vertex(Vector3.ZERO + Vector3.UP * height)
-		surface_tool.add_vertex(Vector3(cos(angle_b) * radius, height, sin(angle_b) * radius))
-		surface_tool.add_vertex(Vector3(cos(angle_a) * radius, height, sin(angle_a) * radius))
-	var instance := MeshInstance3D.new()
-	instance.mesh = surface_tool.commit()
-	instance.material_override = _compass_material(colour)
-	return instance
-
-
-func _create_compass_ring(
-	outer_radius: float,
-	inner_radius: float,
-	side_count: int,
-	colour: Color,
-	height: float
-) -> MeshInstance3D:
-	var surface_tool := SurfaceTool.new()
-	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for side_index in side_count:
-		var angle_a := TAU * float(side_index) / float(side_count)
-		var angle_b := TAU * float(side_index + 1) / float(side_count)
-		var outer_a := Vector3(cos(angle_a) * outer_radius, height, sin(angle_a) * outer_radius)
-		var outer_b := Vector3(cos(angle_b) * outer_radius, height, sin(angle_b) * outer_radius)
-		var inner_a := Vector3(cos(angle_a) * inner_radius, height, sin(angle_a) * inner_radius)
-		var inner_b := Vector3(cos(angle_b) * inner_radius, height, sin(angle_b) * inner_radius)
-		surface_tool.add_vertex(outer_a)
-		surface_tool.add_vertex(outer_b)
-		surface_tool.add_vertex(inner_b)
-		surface_tool.add_vertex(outer_a)
-		surface_tool.add_vertex(inner_b)
-		surface_tool.add_vertex(inner_a)
-	var instance := MeshInstance3D.new()
-	instance.mesh = surface_tool.commit()
-	instance.material_override = _compass_material(colour)
-	return instance
-
-
-func _create_compass_side_wall(
-	radius: float,
-	bottom_height: float,
-	top_height: float,
-	side_count: int,
-	colour: Color
-) -> MeshInstance3D:
-	var surface_tool := SurfaceTool.new()
-	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for side_index in side_count:
-		var angle_a := TAU * float(side_index) / float(side_count)
-		var angle_b := TAU * float(side_index + 1) / float(side_count)
-		var bottom_a := Vector3(cos(angle_a) * radius, bottom_height, sin(angle_a) * radius)
-		var bottom_b := Vector3(cos(angle_b) * radius, bottom_height, sin(angle_b) * radius)
-		var top_a := Vector3(cos(angle_a) * radius, top_height, sin(angle_a) * radius)
-		var top_b := Vector3(cos(angle_b) * radius, top_height, sin(angle_b) * radius)
-		surface_tool.add_vertex(bottom_a)
-		surface_tool.add_vertex(top_b)
-		surface_tool.add_vertex(bottom_b)
-		surface_tool.add_vertex(bottom_a)
-		surface_tool.add_vertex(top_a)
-		surface_tool.add_vertex(top_b)
-	var instance := MeshInstance3D.new()
-	instance.mesh = surface_tool.commit()
-	instance.material_override = _compass_material(colour)
-	return instance
-
-
-func _create_compass_triangle(points_north: bool) -> MeshInstance3D:
-	var direction := -1.0 if points_north else 1.0
-	var surface_tool := SurfaceTool.new()
-	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	surface_tool.add_vertex(Vector3(-0.16, 0.435, direction * 0.03))
-	surface_tool.add_vertex(Vector3(0.0, 0.435, direction * 0.62))
-	surface_tool.add_vertex(Vector3(0.16, 0.435, direction * 0.03))
-	var instance := MeshInstance3D.new()
-	instance.name = "NorthNeedle" if points_north else "SouthNeedle"
-	instance.mesh = surface_tool.commit()
-	instance.material_override = _compass_material(
-		Palette.WOMAN_CLOTHING if points_north else Palette.TOOL_METAL
-	)
-	return instance
-
-
-func _compass_material(colour: Color, transparent := false) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = colour
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	if transparent:
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	return material
-
-
-func _update_compass_camera() -> void:
-	if not is_instance_valid(_compass_camera):
-		return
-	var viewing_direction := _current_camera_offset().normalized()
-	_compass_camera.position = viewing_direction * 4.0
-	_compass_camera.look_at(Vector3.ZERO, Vector3.UP)
-
-
 func _reset_camera_from_compass() -> void:
-	_camera_yaw = DEFAULT_CAMERA_YAW
-	_camera_pitch = DEFAULT_CAMERA_PITCH
+	_cancel_camera_reset_tween()
+	_cancel_citizen_camera_tween()
+	var reset_start_yaw := _camera_yaw
+	var shortest_yaw_delta := wrapf(DEFAULT_CAMERA_YAW - reset_start_yaw, -PI, PI)
+	var reset_target_yaw := reset_start_yaw + shortest_yaw_delta
+	var reset_start_pitch := _camera_pitch
+	var reset_start_size := _camera_size
+	_camera_reset_tween = create_tween()
+	_camera_reset_tween.tween_method(
+		_apply_camera_reset_progress.bind(
+			reset_start_yaw,
+			reset_target_yaw,
+			reset_start_pitch,
+			reset_start_size
+		),
+		0.0,
+		1.0,
+		CAMERA_RESET_DURATION_SECONDS
+	).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_camera_reset_tween.tween_callback(_finish_camera_reset)
+
+
+func _apply_camera_reset_progress(
+	progress: float,
+	start_yaw: float,
+	target_yaw: float,
+	start_pitch: float,
+	start_size: float
+) -> void:
+	_camera_yaw = lerpf(start_yaw, target_yaw, progress)
+	_camera_pitch = lerpf(start_pitch, DEFAULT_CAMERA_PITCH, progress)
+	_camera_size = lerpf(start_size, DEFAULT_CAMERA_SIZE, progress)
 	_update_camera_transform()
 
 
-func _set_compass_hover(is_hovered: bool) -> void:
-	if is_instance_valid(_compass_hover_outline):
-		_compass_hover_outline.visible = is_hovered
+func _finish_camera_reset() -> void:
+	_camera_yaw = DEFAULT_CAMERA_YAW
+	_camera_pitch = DEFAULT_CAMERA_PITCH
+	_camera_size = DEFAULT_CAMERA_SIZE
+	_camera_reset_tween = null
+	_update_camera_transform()
+
+
+func _cancel_camera_reset_tween() -> void:
+	if _camera_reset_tween != null and _camera_reset_tween.is_valid():
+		_camera_reset_tween.kill()
+	_camera_reset_tween = null
+
+
+func _focus_next_citizen_from_population() -> void:
+	var available_citizens: Array[Citizen] = []
+	for citizen in _citizens:
+		if is_instance_valid(citizen):
+			available_citizens.append(citizen)
+	if available_citizens.is_empty():
+		_citizen_camera_cycle_index = -1
+		return
+	_citizen_camera_cycle_index = (_citizen_camera_cycle_index + 1) % available_citizens.size()
+	var target_citizen := available_citizens[_citizen_camera_cycle_index]
+	_start_citizen_camera_transition(target_citizen)
+
+
+func _start_citizen_camera_transition(target_citizen: Citizen) -> void:
+	if not is_instance_valid(target_citizen):
+		return
+	_cancel_camera_reset_tween()
+	_cancel_citizen_camera_tween()
+	var start_focus := _camera_focus
+	var start_size := _camera_size
+	var flat_offset := target_citizen.global_position - start_focus
+	flat_offset.y = 0.0
+	var duration := _citizen_camera_transition_duration(flat_offset.length())
+	_citizen_camera_tween = create_tween()
+	_citizen_camera_tween.tween_method(
+		_apply_citizen_camera_transition.bind(start_focus, start_size, target_citizen),
+		0.0,
+		1.0,
+		duration
+	).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_citizen_camera_tween.tween_callback(
+		_finish_citizen_camera_transition.bind(target_citizen)
+	)
+
+
+func _apply_citizen_camera_transition(
+	progress: float,
+	start_focus: Vector3,
+	start_size: float,
+	target_citizen: Citizen
+) -> void:
+	if not is_instance_valid(target_citizen):
+		_cancel_citizen_camera_tween()
+		return
+	_camera_focus = start_focus.lerp(target_citizen.global_position, progress)
+	_camera_size = lerpf(start_size, CAMERA_MINIMUM_SIZE, progress)
+	_update_camera_transform()
+
+
+func _finish_citizen_camera_transition(target_citizen: Citizen) -> void:
+	if is_instance_valid(target_citizen):
+		_camera_focus = target_citizen.global_position
+		_camera_size = CAMERA_MINIMUM_SIZE
+	_citizen_camera_tween = null
+	_update_camera_transform()
+
+
+func _citizen_camera_transition_duration(world_distance: float) -> float:
+	var viewport_size := get_viewport().get_visible_rect().size
+	var aspect_ratio := 1.0
+	if viewport_size.y > 0.0:
+		aspect_ratio = maxf(1.0, viewport_size.x / viewport_size.y)
+	var one_screen_distance := CAMERA_MINIMUM_SIZE * aspect_ratio
+	var distance_ratio := clampf(world_distance / maxf(one_screen_distance, 0.001), 0.0, 1.0)
+	return lerpf(
+		CITIZEN_CAMERA_MINIMUM_DURATION_SECONDS,
+		CITIZEN_CAMERA_MAXIMUM_DURATION_SECONDS,
+		distance_ratio
+	)
+
+
+func _cancel_citizen_camera_tween() -> void:
+	if _citizen_camera_tween != null and _citizen_camera_tween.is_valid():
+		_citizen_camera_tween.kill()
+	_citizen_camera_tween = null
 
 
 func _create_world_progress_layer() -> void:
@@ -2890,6 +3980,74 @@ func _create_world_progress_layer() -> void:
 	_world_progress_layer.name = "WorldProgressBars"
 	_world_progress_layer.layer = 105
 	add_child(_world_progress_layer)
+	_construction_inspector = ConstructionInspectorScript.new() as ConstructionInspector
+	_construction_inspector.configure()
+	_world_progress_layer.add_child(_construction_inspector)
+
+
+func _update_selected_construction_inspector() -> void:
+	if not is_instance_valid(_construction_inspector) or not is_instance_valid(_camera):
+		return
+	if (
+		not is_instance_valid(_selected_building)
+		or _selected_world_object != _selected_building
+		or not _selected_building.is_planned()
+		or not _selected_building.visible
+	):
+		_construction_inspector.visible = false
+		return
+	var world_anchor := _selected_building.global_position + Vector3.UP * 1.48
+	if _camera.is_position_behind(world_anchor):
+		_construction_inspector.visible = false
+		return
+	var recipe := _selected_building.construction_recipe()
+	var installed_materials := _selected_building.installed_resource_counts()
+	var labour_seconds_by_resource := _selected_building.labour_seconds_by_resource()
+	var total_seconds := ConstructionProgressScript.total_required_seconds(
+		recipe,
+		labour_seconds_by_resource
+	)
+	var applied_seconds := ConstructionProgressScript.installed_seconds(
+		installed_materials,
+		labour_seconds_by_resource
+	)
+	for record_value in _labour_records.values():
+		var record := record_value as Dictionary
+		if (
+			record.get("target") != _selected_building
+			or str(record.get("kind", "")) != ActionCatalog.APPLY_BUILDING_BLOCK
+		):
+			continue
+		var labour := record.get("labour") as AppliedLabour
+		if labour != null:
+			applied_seconds += labour.applied_seconds
+	_construction_inspector.present(
+		UIText.text(UIText.SUPPORT_NAME_TEXT),
+		total_seconds,
+		clampf(applied_seconds, 0.0, total_seconds),
+		recipe,
+		installed_materials,
+		_camera_size,
+		CAMERA_MINIMUM_SIZE,
+		CAMERA_MAXIMUM_SIZE
+	)
+	_construction_inspector.reset_size()
+	var inspector_size := _construction_inspector.get_combined_minimum_size()
+	_construction_inspector.size = inspector_size
+	var screen_anchor := _camera.unproject_position(world_anchor)
+	var viewport_size := Vector2(get_viewport().get_visible_rect().size)
+	_construction_inspector.position = Vector2(
+		clampf(
+			screen_anchor.x - inspector_size.x * 0.5,
+			6.0,
+			maxf(6.0, viewport_size.x - inspector_size.x - 6.0)
+		),
+		clampf(
+			screen_anchor.y - inspector_size.y - 6.0,
+			6.0,
+			maxf(6.0, viewport_size.y - inspector_size.y - 6.0)
+		)
+	)
 
 
 func _create_top_toolbar() -> void:
@@ -2899,6 +4057,7 @@ func _create_top_toolbar() -> void:
 	add_child(toolbar_layer)
 	_create_toolbar_tooltip(toolbar_layer)
 	_create_population_indicator(toolbar_layer)
+	_create_selected_pile_inventory(toolbar_layer)
 	_top_toolbar = HBoxContainer.new()
 	_top_toolbar.name = "TransparentTopToolbar"
 	_top_toolbar.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -2913,18 +4072,6 @@ func _create_top_toolbar() -> void:
 	_simulation_speed_button = _create_simulation_speed_button()
 	_top_toolbar.add_child(_simulation_speed_button)
 
-	_deconstruct_button = _create_toolbar_button(
-		_create_toolbar_icon("deconstruct"),
-		UIText.text(UIText.DECONSTRUCT_BUTTON_TOOLTIP_TEXT),
-		false,
-		_create_toolbar_icon("deconstruct_hover")
-	)
-	_deconstruct_button.name = "DeconstructButton"
-	_deconstruct_button.visible = false
-	_deconstruct_button.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_deconstruct_button.pressed.connect(_deconstruct_selected_building)
-	_top_toolbar.add_child(_deconstruct_button)
-
 	_building_button = _create_toolbar_button(
 		_create_toolbar_icon("building"),
 		UIText.text(UIText.BUILD_BUTTON_TOOLTIP_TEXT),
@@ -2937,6 +4084,18 @@ func _create_top_toolbar() -> void:
 	_building_button.pressed.connect(_toggle_build_menu)
 	_top_toolbar.add_child(_building_button)
 	_create_build_menu(toolbar_layer)
+
+	_greenery_button = _create_toolbar_button(
+		_create_toolbar_icon("greenery"),
+		UIText.text(UIText.GREENERY_BUTTON_TOOLTIP_TEXT),
+		false,
+		_create_toolbar_icon("greenery_hover")
+	)
+	_greenery_button.name = "GreeneryModeButton"
+	_greenery_button.toggle_mode = true
+	_greenery_button.set_meta("pressed_icon", _create_toolbar_icon("greenery_active"))
+	_greenery_button.pressed.connect(_toggle_greenery_mode)
+	_top_toolbar.add_child(_greenery_button)
 
 	var save_quit_icon := _create_toolbar_icon("save_quit")
 	var save_quit_hover_icon := _create_toolbar_icon("save_quit_hover")
@@ -2956,30 +4115,118 @@ func _close_game() -> void:
 
 
 func _create_population_indicator(toolbar_layer: CanvasLayer) -> void:
-	var population_row := HBoxContainer.new()
-	population_row.name = "PopulationIndicator"
-	population_row.position = Vector2(10.0, 10.0)
-	population_row.add_theme_constant_override("separation", 2)
-	toolbar_layer.add_child(population_row)
-
-	var population_icon := _create_toolbar_button(
+	_population_icon_number = IconNumberScript.new() as IconNumber
+	_population_icon_number.name = "PopulationIndicator"
+	_population_icon_number.position = Vector2(10.0, 10.0)
+	_population_icon_number.configure(
 		_create_toolbar_icon("population"),
-		UIText.text(UIText.POPULATION_TOOLTIP_TEXT),
-		false,
-		_create_toolbar_icon("population_hover")
+		_create_toolbar_icon("population_hover"),
+		_population_count(),
+		IconNumber.ScaleMode.STANDARD,
+		Vector2.ONE * VisualTokens.TOOLBAR_BUTTON_PIXELS,
+		VisualTokens.POPULATION_COUNT_FONT_SIZE,
+		true,
+		"PopulationIcon",
+		"PopulationCount",
+		Vector2(28.0, VisualTokens.TOOLBAR_BUTTON_PIXELS)
 	)
-	population_icon.name = "PopulationIcon"
+	toolbar_layer.add_child(_population_icon_number)
+	var population_icon := _population_icon_number.icon_button()
 	population_icon.focus_mode = Control.FOCUS_NONE
-	population_row.add_child(population_icon)
+	population_icon.pressed.connect(_focus_next_citizen_from_population)
+	population_icon.mouse_entered.connect(
+		_show_toolbar_tooltip.bind(population_icon, UIText.text(UIText.POPULATION_TOOLTIP_TEXT))
+	)
+	population_icon.mouse_exited.connect(_hide_toolbar_tooltip)
+	population_icon.focus_entered.connect(
+		_show_toolbar_tooltip.bind(population_icon, UIText.text(UIText.POPULATION_TOOLTIP_TEXT))
+	)
+	population_icon.focus_exited.connect(_hide_toolbar_tooltip)
 
-	_population_count_label = Label.new()
-	_population_count_label.name = "PopulationCount"
-	_population_count_label.custom_minimum_size = Vector2(28.0, 44.0)
-	_population_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_population_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_population_count_label.add_theme_font_size_override("font_size", 22)
-	_population_count_label.add_theme_color_override("font_color", Color.BLACK)
-	population_row.add_child(_population_count_label)
+
+func _create_selected_pile_inventory(toolbar_layer: CanvasLayer) -> void:
+	_pile_inventory_row = HBoxContainer.new()
+	_pile_inventory_row.name = "SelectedPileInventory"
+	_pile_inventory_row.position = Vector2(10.0, 58.0)
+	_pile_inventory_row.add_theme_constant_override("separation", 4)
+	_pile_inventory_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pile_inventory_row.visible = false
+	toolbar_layer.add_child(_pile_inventory_row)
+	_update_icon_number_layout()
+
+
+func _update_icon_number_layout() -> void:
+	if not is_instance_valid(_population_icon_number) or not is_instance_valid(_pile_inventory_row):
+		return
+	var population_height := maxf(
+		VisualTokens.TOOLBAR_BUTTON_PIXELS,
+		_population_icon_number.current_icon_size().y
+	)
+	_pile_inventory_row.position = Vector2(10.0, 10.0 + population_height + 4.0)
+
+
+func _update_selected_pile_inventory() -> void:
+	if not is_instance_valid(_pile_inventory_row):
+		return
+	if not is_instance_valid(_selected_world_object) or not _selected_world_object is PileStorage:
+		_pile_inventory_row.visible = false
+		_pile_inventory_signature = ""
+		return
+	var selected_pile := _selected_world_object as PileStorage
+	var inventory := selected_pile.inventory_snapshot()
+	var signature_parts: Array[String] = []
+	for resource_kind_value in inventory:
+		var resource_kind := str(resource_kind_value)
+		signature_parts.append("%s:%d" % [resource_kind, int(inventory[resource_kind])])
+	var next_signature := "%d|%s" % [selected_pile.get_instance_id(), ",".join(signature_parts)]
+	_pile_inventory_row.visible = true
+	if next_signature == _pile_inventory_signature:
+		return
+	_pile_inventory_signature = next_signature
+	for old_card in _pile_inventory_row.get_children():
+		_pile_inventory_row.remove_child(old_card)
+		old_card.queue_free()
+	for resource_kind_value in inventory:
+		var resource_kind := str(resource_kind_value)
+		_pile_inventory_row.add_child(
+			_create_pile_resource_card(resource_kind, int(inventory[resource_kind]))
+		)
+
+
+func _create_pile_resource_card(resource_kind: String, amount: int) -> PanelContainer:
+	var card := PanelContainer.new()
+	card.name = "ResourceCard_%s" % resource_kind
+	card.custom_minimum_size = Vector2(38.0, 24.0)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var card_style := StyleBoxFlat.new()
+	card_style.bg_color = Color(1.0, 1.0, 1.0, 0.82)
+	card_style.border_color = Color.BLACK
+	card_style.set_border_width_all(int(VisualTokens.OUTLINE_PIXELS))
+	card_style.set_corner_radius_all(0)
+	card_style.content_margin_left = 4.0
+	card_style.content_margin_right = 4.0
+	card_style.content_margin_top = 2.0
+	card_style.content_margin_bottom = 2.0
+	card.add_theme_stylebox_override("panel", card_style)
+
+	var contents := IconNumberScript.new() as IconNumber
+	contents.name = "CardContents"
+	contents.configure(
+		ToolbarIcons.create_resource_icon(
+			resource_kind,
+			int(VisualTokens.ICON_NUMBER_COMPACT_ICON_PIXELS)
+		),
+		null,
+		amount,
+		IconNumber.ScaleMode.COMPACT,
+		Vector2.ONE * VisualTokens.ICON_NUMBER_COMPACT_ICON_PIXELS,
+		VisualTokens.PILE_RESOURCE_COUNT_FONT_SIZE,
+		false,
+		"ResourceIcon",
+		"ResourceCount"
+	)
+	card.add_child(contents)
+	return card
 
 
 func _create_simulation_speed_button() -> Button:
@@ -2989,14 +4236,14 @@ func _create_simulation_speed_button() -> Button:
 	button.size = Vector2(52.0, 44.0)
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.flat = true
-	button.text = _simulation_speed_text()
+	button.icon = _simulation_speed_icon()
+	button.expand_icon = false
 	button.tooltip_text = ""
-	button.theme = PixelUI.tooltip_theme()
-	button.add_theme_font_size_override("font_size", 19)
-	button.add_theme_color_override("font_color", Color.BLACK)
-	button.add_theme_color_override("font_hover_color", Palette.HOME_DOORWAY)
-	button.add_theme_color_override("font_focus_color", Palette.HOME_DOORWAY)
-	button.add_theme_color_override("font_pressed_color", Color.BLACK)
+	button.theme = PixelUITheme.tooltip_theme()
+	button.add_theme_color_override("icon_normal_color", Color.BLACK)
+	button.add_theme_color_override("icon_hover_color", Palette.HOME_DOORWAY)
+	button.add_theme_color_override("icon_focus_color", Palette.HOME_DOORWAY)
+	button.add_theme_color_override("icon_pressed_color", Color.BLACK)
 	var empty_style := StyleBoxEmpty.new()
 	for style_name in ["normal", "hover", "pressed", "focus", "disabled"]:
 		button.add_theme_stylebox_override(style_name, empty_style)
@@ -3009,8 +4256,8 @@ func _create_simulation_speed_button() -> Button:
 	return button
 
 
-func _simulation_speed_text() -> String:
-	return "%d×" % int(_simulation_speed)
+func _simulation_speed_icon() -> ImageTexture:
+	return ToolbarIcons.create_icon("simulation_speed_%d" % int(_simulation_speed))
 
 
 func _cycle_simulation_speed() -> void:
@@ -3024,7 +4271,7 @@ func _set_simulation_speed(next_speed: float) -> void:
 		return
 	_simulation_speed = next_speed
 	if is_instance_valid(_simulation_speed_button):
-		_simulation_speed_button.text = _simulation_speed_text()
+		_simulation_speed_button.icon = _simulation_speed_icon()
 	for citizen in _citizens:
 		if is_instance_valid(citizen):
 			citizen.set_simulation_speed(_simulation_speed)
@@ -3040,8 +4287,8 @@ func _create_toolbar_button(
 	hover_icon: ImageTexture = null
 ) -> Button:
 	var button := Button.new()
-	button.custom_minimum_size = Vector2(44.0, 44.0)
-	button.size = Vector2(44.0, 44.0)
+	button.custom_minimum_size = Vector2.ONE * VisualTokens.TOOLBAR_BUTTON_PIXELS
+	button.size = Vector2.ONE * VisualTokens.TOOLBAR_BUTTON_PIXELS
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.icon = icon_texture
 	button.set_meta("normal_icon", icon_texture)
@@ -3050,7 +4297,7 @@ func _create_toolbar_button(
 	# A dedicated tooltip is anchored beneath the complete rectangular hit area;
 	# native pointer-relative placement could cover the icon itself.
 	button.tooltip_text = ""
-	button.theme = PixelUI.tooltip_theme()
+	button.theme = PixelUITheme.tooltip_theme()
 	button.disabled = is_disabled
 	button.add_theme_color_override("icon_disabled_color", Color.WHITE)
 	var empty_style := StyleBoxEmpty.new()
@@ -3087,14 +4334,14 @@ func _create_toolbar_tooltip(toolbar_layer: CanvasLayer) -> void:
 	var tooltip_style := StyleBoxFlat.new()
 	tooltip_style.bg_color = Color.BLACK
 	tooltip_style.border_color = Color.WHITE
-	tooltip_style.set_border_width_all(int(UI_OUTLINE_PIXELS))
+	tooltip_style.set_border_width_all(int(VisualTokens.OUTLINE_PIXELS))
 	tooltip_style.set_corner_radius_all(0)
 	tooltip_style.set_content_margin_all(4.0)
 	_toolbar_tooltip.add_theme_stylebox_override("panel", tooltip_style)
 	toolbar_layer.add_child(_toolbar_tooltip)
 	_toolbar_tooltip_label = Label.new()
 	_toolbar_tooltip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_toolbar_tooltip_label.add_theme_font_size_override("font_size", 14)
+	_toolbar_tooltip_label.add_theme_font_size_override("font_size", VisualTokens.TOOLTIP_FONT_SIZE)
 	_toolbar_tooltip_label.add_theme_color_override("font_color", Color.WHITE)
 	_toolbar_tooltip.add_child(_toolbar_tooltip_label)
 
@@ -3107,14 +4354,17 @@ func _show_toolbar_tooltip(button: Button, tooltip_text: String) -> void:
 	var tooltip_size := _toolbar_tooltip.get_combined_minimum_size()
 	_toolbar_tooltip.size = tooltip_size
 	var button_rect := button.get_global_rect()
-	var viewport_width := get_viewport().get_visible_rect().size.x
+	var viewport_size := Vector2(get_viewport().get_visible_rect().size)
+	var tooltip_y := button_rect.end.y + 5.0
+	if tooltip_y + tooltip_size.y > viewport_size.y - 4.0:
+		tooltip_y = button_rect.position.y - tooltip_size.y - 5.0
 	_toolbar_tooltip.position = Vector2(
 		clampf(
 			button_rect.get_center().x - tooltip_size.x * 0.5,
 			4.0,
-			maxf(4.0, viewport_width - tooltip_size.x - 4.0)
+			maxf(4.0, viewport_size.x - tooltip_size.x - 4.0)
 		),
-		button_rect.end.y + 5.0
+		clampf(tooltip_y, 4.0, maxf(4.0, viewport_size.y - tooltip_size.y - 4.0))
 	)
 	_toolbar_tooltip.visible = true
 
@@ -3126,7 +4376,7 @@ func _hide_toolbar_tooltip() -> void:
 
 func _apply_pixel_font_to_controls(parent: Node) -> void:
 	if parent is Control:
-		PixelUI.apply(parent as Control)
+		PixelUITheme.apply(parent as Control)
 	for child in parent.get_children():
 		_apply_pixel_font_to_controls(child)
 
@@ -3140,21 +4390,54 @@ func _toggle_build_menu() -> void:
 		_build_menu.visible = true
 
 
-func _deconstruct_selected_building() -> void:
-	if (
-		_selected_world_object is SupportConstructionSite
-		or _selected_world_object is ExcavationSite
-	):
-		_try_delete_selected_object()
+func _toggle_greenery_mode() -> void:
+	if _greenery_mode:
+		_leave_greenery_mode()
+		return
+	_enter_greenery_mode()
+
+
+func _enter_greenery_mode() -> void:
+	_set_selected_citizens([])
+	_clear_deconstruction_hover_preview()
+	_build_mode = false
+	_placing_support = false
+	_placing_excavation = false
+	_removing_buildings = false
+	_selected_building = null
+	_greenery_mode = true
+	_selected_greenery = null
+	_clear_object_selection()
+	if is_instance_valid(_build_menu):
+		_build_menu.visible = false
+	_refresh_planned_building_visibility()
+
+
+func _leave_greenery_mode() -> void:
+	_greenery_mode = false
+	_selected_greenery = null
+	_clear_object_selection()
+
+
+func _toggle_remove_building_tool() -> void:
+	_clear_deconstruction_hover_preview()
+	_removing_buildings = not _removing_buildings
+	_placing_support = false
+	_placing_excavation = false
+	_selected_building = null
+	_clear_object_selection()
+	_refresh_planned_building_visibility()
 
 
 func _create_build_menu(toolbar_layer: CanvasLayer) -> void:
 	_build_menu = PanelContainer.new()
 	_build_menu.name = "BottomConstructionCatalog"
 	_build_menu.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_build_menu.position = Vector2(-126.0, -62.0)
+	# Two 44-pixel slots, six pixels of separation, and four pixels of panel
+	# margin on each side: 102 pixels centred on the bottom edge.
+	_build_menu.position = Vector2(-51.0, -62.0)
 	_build_menu.visible = false
-	_build_menu.theme = PixelUI.tooltip_theme()
+	_build_menu.theme = PixelUITheme.tooltip_theme()
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color.BLACK
 	panel_style.border_color = Color.WHITE
@@ -3168,167 +4451,30 @@ func _create_build_menu(toolbar_layer: CanvasLayer) -> void:
 	catalog_row.add_theme_constant_override("separation", 6)
 	_build_menu.add_child(catalog_row)
 
-	var excavation_button := _create_toolbar_button(
-		_create_toolbar_icon("excavate"),
-		UIText.text(UIText.EXCAVATE_TOOL_TOOLTIP_TEXT),
-		false,
-		_create_toolbar_icon("excavate_hover")
-	)
-	excavation_button.name = "ExcavateToolButton"
-	excavation_button.pressed.connect(_enter_excavation_mode)
-	catalog_row.add_child(excavation_button)
-
 	var support_button := _create_toolbar_button(
-		_create_toolbar_icon("support"),
+		_create_toolbar_icon("support_preview"),
 		UIText.text(UIText.SUPPORT_NAME_TEXT),
-		false
+		false,
+		_create_toolbar_icon("support_preview_hover")
 	)
 	support_button.name = "PlaceSupportButton"
 	support_button.pressed.connect(_enter_build_mode.bind(true))
 	catalog_row.add_child(support_button)
 
-	for unavailable_building in [
-		["platform", UIText.SUPPORT_PLATFORM_NAME_TEXT, "SupportPlatformButton"],
-		["pergola", UIText.PERGOLA_NAME_TEXT, "PergolaButton"],
-		["house", UIText.LIVABLE_HOUSE_NAME_TEXT, "LivableHouseButton"],
-	]:
-		var unavailable_button := _create_toolbar_button(
-			_create_toolbar_icon(str(unavailable_building[0])),
-			UIText.text(str(unavailable_building[1])),
-			true
-		)
-		unavailable_button.name = str(unavailable_building[2])
-		unavailable_button.modulate = Color(1.0, 1.0, 1.0, 0.48)
-		catalog_row.add_child(unavailable_button)
+	_remove_building_button = _create_toolbar_button(
+		_create_toolbar_icon("remove_building"),
+		UIText.text(UIText.REMOVE_BUILDING_TOOLTIP_TEXT),
+		false,
+		_create_toolbar_icon("remove_building_hover")
+	)
+	_remove_building_button.name = "RemoveBuildingButton"
+	_remove_building_button.toggle_mode = true
+	_remove_building_button.pressed.connect(_toggle_remove_building_tool)
+	catalog_row.add_child(_remove_building_button)
 
 
 func _create_toolbar_icon(icon_kind: String) -> ImageTexture:
-	var icon_image := Image.create(40, 40, false, Image.FORMAT_RGBA8)
-	icon_image.fill(Color.TRANSPARENT)
-	if icon_kind in ["population", "population_hover"]:
-		if icon_kind == "population_hover":
-			_draw_icon_circle(icon_image, Vector2(20, 11), 5.0 + UI_OUTLINE_PIXELS, Color.WHITE)
-			_draw_rounded_icon_line(icon_image, Vector2(14, 22), Vector2(26, 22), 3.0 + UI_OUTLINE_PIXELS, Color.WHITE)
-			_draw_rounded_icon_line(icon_image, Vector2(20, 21), Vector2(20, 33), 5.0 + UI_OUTLINE_PIXELS, Color.WHITE)
-		_draw_icon_circle(icon_image, Vector2(20, 11), 5.0, Color.BLACK)
-		_draw_rounded_icon_line(icon_image, Vector2(14, 22), Vector2(26, 22), 3.0, Color.BLACK)
-		_draw_rounded_icon_line(icon_image, Vector2(20, 21), Vector2(20, 33), 5.0, Color.BLACK)
-	elif icon_kind in ["building", "building_hover", "building_active"]:
-		var building_polygon := PackedVector2Array([
-			Vector2(12, 18), Vector2(20, 10), Vector2(28, 18), Vector2(28, 31), Vector2(12, 31),
-		])
-		if icon_kind == "building_active":
-			_fill_icon_polygon(icon_image, building_polygon, Color.BLACK)
-		else:
-			if icon_kind == "building_hover":
-				_draw_building_outline(
-					icon_image,
-					BUILDING_ICON_STROKE_PIXELS + UI_OUTLINE_PIXELS * 2.0,
-					Color.WHITE
-				)
-			_draw_building_outline(icon_image, BUILDING_ICON_STROKE_PIXELS, Color.BLACK)
-	elif icon_kind in ["deconstruct", "deconstruct_hover"]:
-		if icon_kind == "deconstruct_hover":
-			_draw_rounded_icon_line(icon_image, Vector2(11, 10), Vector2(29, 10), 2.5 + UI_OUTLINE_PIXELS, Color.WHITE)
-			_draw_rounded_icon_line(icon_image, Vector2(13, 12), Vector2(13, 30), 2.0 + UI_OUTLINE_PIXELS, Color.WHITE)
-			_draw_rounded_icon_line(icon_image, Vector2(27, 12), Vector2(27, 30), 2.0 + UI_OUTLINE_PIXELS, Color.WHITE)
-			_draw_rounded_icon_line(icon_image, Vector2(9, 31), Vector2(31, 9), 2.2 + UI_OUTLINE_PIXELS, Color.WHITE)
-		_draw_rounded_icon_line(icon_image, Vector2(11, 10), Vector2(29, 10), 2.5, Palette.ROOF_LOG)
-		_draw_rounded_icon_line(icon_image, Vector2(13, 12), Vector2(13, 30), 2.0, Palette.ROOF_LOG)
-		_draw_rounded_icon_line(icon_image, Vector2(27, 12), Vector2(27, 30), 2.0, Palette.ROOF_LOG)
-		_draw_rounded_icon_line(icon_image, Vector2(9, 31), Vector2(31, 9), 2.2, Palette.WOMAN_CLOTHING)
-	elif icon_kind in ["excavate", "excavate_hover"]:
-		if icon_kind == "excavate_hover":
-			_draw_rounded_icon_line(icon_image, Vector2(27, 7), Vector2(13, 27), 2.2 + UI_OUTLINE_PIXELS, Color.WHITE)
-			_draw_rounded_icon_line(icon_image, Vector2(10, 26), Vector2(17, 33), 4.0 + UI_OUTLINE_PIXELS, Color.WHITE)
-		_draw_rounded_icon_line(icon_image, Vector2(27, 7), Vector2(13, 27), 2.2, Palette.ROOF_LOG)
-		_draw_rounded_icon_line(icon_image, Vector2(10, 26), Vector2(17, 33), 4.0, Palette.TOOL_METAL)
-	elif icon_kind == "support":
-		for post_x in [12.0, 28.0]:
-			_draw_rounded_icon_line(
-				icon_image, Vector2(post_x, 12), Vector2(post_x, 32), 2.5, Palette.ROOF_LOG
-			)
-		_draw_rounded_icon_line(icon_image, Vector2(10, 13), Vector2(30, 13), 2.5, Palette.ROOF_LOG)
-	elif icon_kind == "platform":
-		for post_x in [12.0, 28.0]:
-			_draw_rounded_icon_line(icon_image, Vector2(post_x, 17), Vector2(post_x, 32), 2.2, Palette.ROOF_LOG)
-		_draw_rounded_icon_line(icon_image, Vector2(9, 15), Vector2(31, 15), 4.0, Palette.WOODEN_ROOF)
-	elif icon_kind == "pergola":
-		for post_x in [12.0, 28.0]:
-			_draw_rounded_icon_line(icon_image, Vector2(post_x, 16), Vector2(post_x, 32), 2.2, Palette.ROOF_LOG)
-		_draw_rounded_icon_line(icon_image, Vector2(9, 14), Vector2(31, 14), 3.5, Palette.SUN)
-	elif icon_kind == "house":
-		_draw_rounded_icon_line(icon_image, Vector2(12, 18), Vector2(12, 32), 2.3, Palette.FOG_AND_SHADOW)
-		_draw_rounded_icon_line(icon_image, Vector2(28, 18), Vector2(28, 32), 2.3, Palette.FOG_AND_SHADOW)
-		_draw_rounded_icon_line(icon_image, Vector2(12, 31), Vector2(28, 31), 2.3, Palette.FOG_AND_SHADOW)
-		_draw_rounded_icon_line(icon_image, Vector2(9, 19), Vector2(20, 9), 2.8, Palette.WOMAN_CLOTHING)
-		_draw_rounded_icon_line(icon_image, Vector2(20, 9), Vector2(31, 19), 2.8, Palette.WOMAN_CLOTHING)
-	elif icon_kind == "save_quit":
-		# Slightly unequal strokes keep the X hand-drawn. Its resting state is
-		# black only; the shared cursor-width white silhouette belongs to hover.
-		_draw_rounded_icon_line(icon_image, Vector2(10, 9), Vector2(31, 30), 3.0, Color.BLACK)
-		_draw_rounded_icon_line(icon_image, Vector2(30, 10), Vector2(9, 31), 2.6, Color.BLACK)
-	else:
-		_draw_rounded_icon_line(
-			icon_image, Vector2(10, 9), Vector2(31, 30), 3.0 + UI_OUTLINE_PIXELS, Color.WHITE
-		)
-		_draw_rounded_icon_line(
-			icon_image, Vector2(30, 10), Vector2(9, 31), 2.6 + UI_OUTLINE_PIXELS, Color.WHITE
-		)
-		_draw_rounded_icon_line(icon_image, Vector2(10, 9), Vector2(31, 30), 3.0, Color.BLACK)
-		_draw_rounded_icon_line(icon_image, Vector2(30, 10), Vector2(9, 31), 2.6, Color.BLACK)
-	return ImageTexture.create_from_image(icon_image)
-
-
-func _draw_building_outline(target_image: Image, stroke_width: float, colour: Color) -> void:
-	# Five edges only: the slightly overhanging roof replaces the ceiling line.
-	var stroke_radius := stroke_width * 0.5
-	_draw_rounded_icon_line(target_image, Vector2(12, 18), Vector2(12, 31), stroke_radius, colour)
-	_draw_rounded_icon_line(target_image, Vector2(12, 31), Vector2(28, 31), stroke_radius, colour)
-	_draw_rounded_icon_line(target_image, Vector2(28, 31), Vector2(28, 18), stroke_radius, colour)
-	_draw_rounded_icon_line(target_image, Vector2(9, 19), Vector2(20, 9), stroke_radius, colour)
-	_draw_rounded_icon_line(target_image, Vector2(20, 9), Vector2(31, 19), stroke_radius, colour)
-
-
-func _fill_icon_polygon(target_image: Image, polygon: PackedVector2Array, colour: Color) -> void:
-	for pixel_x in target_image.get_width():
-		for pixel_y in target_image.get_height():
-			var pixel_centre := Vector2(float(pixel_x) + 0.5, float(pixel_y) + 0.5)
-			if Geometry2D.is_point_in_polygon(pixel_centre, polygon):
-				target_image.set_pixel(pixel_x, pixel_y, colour)
-	_draw_building_outline(target_image, BUILDING_ICON_STROKE_PIXELS, colour)
-
-
-func _draw_icon_circle(target_image: Image, centre: Vector2, radius: float, colour: Color) -> void:
-	for pixel_x in target_image.get_width():
-		for pixel_y in target_image.get_height():
-			var pixel_centre := Vector2(float(pixel_x) + 0.5, float(pixel_y) + 0.5)
-			if pixel_centre.distance_to(centre) <= radius:
-				target_image.set_pixel(pixel_x, pixel_y, colour)
-
-
-func _draw_rounded_icon_line(
-	target_image: Image,
-	line_start: Vector2,
-	line_end: Vector2,
-	radius: float,
-	colour: Color
-) -> void:
-	var line_offset := line_end - line_start
-	var line_length_squared := line_offset.length_squared()
-	for pixel_x in target_image.get_width():
-		for pixel_y in target_image.get_height():
-			var pixel_centre := Vector2(float(pixel_x) + 0.5, float(pixel_y) + 0.5)
-			var projection := 0.0
-			if line_length_squared > 0.0:
-				projection = clampf(
-					(pixel_centre - line_start).dot(line_offset) / line_length_squared,
-					0.0,
-					1.0
-				)
-			var nearest_point := line_start + line_offset * projection
-			if pixel_centre.distance_to(nearest_point) <= radius:
-				target_image.set_pixel(pixel_x, pixel_y, colour)
+	return ToolbarIcons.create_icon(icon_kind)
 
 
 func _create_hover_tooltip() -> void:
@@ -3340,7 +4486,7 @@ func _create_hover_tooltip() -> void:
 	_hover_tooltip.name = "HoverName"
 	_hover_tooltip.visible = false
 	_hover_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hover_tooltip.add_theme_font_size_override("font_size", 16)
+	_hover_tooltip.add_theme_font_size_override("font_size", VisualTokens.WORLD_TOOLTIP_FONT_SIZE)
 	_hover_tooltip.add_theme_color_override("font_color", Color.BLACK)
 	_hover_tooltip.add_theme_constant_override("outline_size", 0)
 	var tooltip_style := StyleBoxEmpty.new()
@@ -3426,13 +4572,13 @@ func _create_first_launch_onboarding() -> void:
 	var title := Label.new()
 	title.text = UIText.text(UIText.ONBOARDING_TITLE_TEXT)
 	title.position = Vector2(22.0, 14.0)
-	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_font_size_override("font_size", VisualTokens.ONBOARDING_TITLE_FONT_SIZE)
 	title.add_theme_color_override("font_color", Color.WHITE)
 	panel.add_child(title)
 	var explanation := Label.new()
 	explanation.text = UIText.text(UIText.ONBOARDING_EXPLANATION_TEXT)
 	explanation.position = Vector2(22.0, 42.0)
-	explanation.add_theme_font_size_override("font_size", 13)
+	explanation.add_theme_font_size_override("font_size", VisualTokens.ONBOARDING_BODY_FONT_SIZE)
 	explanation.add_theme_color_override("font_color", Color.WHITE)
 	panel.add_child(explanation)
 
@@ -3514,7 +4660,7 @@ func _create_count_badge(
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	badge.add_theme_font_size_override("font_size", 18)
+	badge.add_theme_font_size_override("font_size", VisualTokens.COUNT_BADGE_FONT_SIZE)
 	badge.add_theme_color_override("font_color", Color.WHITE)
 	var badge_style := StyleBoxFlat.new()
 	badge_style.bg_color = background_colour
@@ -3541,22 +4687,8 @@ func _create_pixel_filter() -> void:
 	pixel_layer.add_child(pixel_rect)
 	pixel_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	var pixel_shader := Shader.new()
-	pixel_shader.code = """
-shader_type canvas_item;
-render_mode unshaded;
-
-uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_nearest;
-uniform float pixel_block_size = 2.0;
-
-void fragment() {
-	vec2 block_uv = SCREEN_PIXEL_SIZE * pixel_block_size;
-	vec2 sampled_uv = (floor(SCREEN_UV / block_uv) + vec2(0.5)) * block_uv;
-	COLOR = textureLod(screen_texture, sampled_uv, 0.0);
-}
-"""
 	var pixel_material := ShaderMaterial.new()
-	pixel_material.shader = pixel_shader
+	pixel_material.shader = PIXEL_FILTER_SHADER
 	pixel_material.set_shader_parameter("pixel_block_size", PIXEL_BLOCK_SIZE)
 	pixel_rect.material = pixel_material
 
@@ -3566,6 +4698,8 @@ func _update_interface() -> void:
 		return
 	if _build_mode:
 		_ui_mode.text = UIText.text(UIText.BUILDING_MODE_LABEL_TEXT)
+	elif _greenery_mode:
+		_ui_mode.text = UIText.text(UIText.GREENERY_MODE_LABEL_TEXT)
 	elif not _selected_citizens.is_empty():
 		_ui_mode.text = UIText.text(UIText.CITIZEN_MODE_LABEL_TEXT)
 	else:
@@ -3575,8 +4709,9 @@ func _update_interface() -> void:
 	_update_rts_count_badge_geometry()
 	_goods_count_badge.visible = _build_mode
 	_goods_count_badge.text = str(_count_available_logs())
-	if is_instance_valid(_population_count_label):
-		_population_count_label.text = str(_population_count())
+	if is_instance_valid(_population_icon_number):
+		_population_icon_number.set_number(_population_count())
+	_update_selected_pile_inventory()
 	_update_toolbar_mode_state()
 	_day_label.text = UIText.text(
 		UIText.DAY_COUNT_TEXT,
@@ -3603,23 +4738,25 @@ func _update_interface() -> void:
 
 
 func _update_toolbar_mode_state() -> void:
-	if not is_instance_valid(_building_button) or not is_instance_valid(_deconstruct_button):
+	if not is_instance_valid(_building_button):
 		return
 	_building_button.set_pressed_no_signal(_build_mode)
 	_set_toolbar_button_icon(
 		_building_button,
 		_building_button.get_meta("normal_icon") as ImageTexture
 	)
-	_deconstruct_button.modulate.a = 1.0 if _build_mode else 0.0
-	_deconstruct_button.visible = _build_mode
-	_deconstruct_button.mouse_filter = (
-		Control.MOUSE_FILTER_STOP if _build_mode else Control.MOUSE_FILTER_IGNORE
-	)
-	var has_deconstruct_target := is_instance_valid(_selected_world_object) and (
-		_selected_world_object is SupportConstructionSite
-		or _selected_world_object is ExcavationSite
-	)
-	_deconstruct_button.disabled = not has_deconstruct_target
+	if is_instance_valid(_remove_building_button):
+		_remove_building_button.set_pressed_no_signal(_removing_buildings)
+		_set_toolbar_button_icon(
+			_remove_building_button,
+			_remove_building_button.get_meta("normal_icon") as ImageTexture
+		)
+	if is_instance_valid(_greenery_button):
+		_greenery_button.set_pressed_no_signal(_greenery_mode)
+		_set_toolbar_button_icon(
+			_greenery_button,
+			_greenery_button.get_meta("normal_icon") as ImageTexture
+		)
 
 
 func _population_count() -> int:
@@ -3649,7 +4786,7 @@ func _update_rts_count_badge_geometry() -> void:
 
 
 func _count_available_logs() -> int:
-	var count := 0
+	var count := _starting_pile.stored_logs if is_instance_valid(_starting_pile) else 0
 	for item in _items:
 		if is_instance_valid(item) and item.is_available_log():
 			count += 1
@@ -3664,139 +4801,13 @@ func _material(color: Color) -> StandardMaterial3D:
 
 
 func _terrain_material(surface_colour: Color) -> ShaderMaterial:
-	var terrain_shader := Shader.new()
-	terrain_shader.code = """
-shader_type spatial;
-render_mode ambient_light_disabled;
-
-uniform vec4 surface_color : source_color;
-uniform vec4 shadow_color : source_color;
-uniform float daylight = 1.0;
-uniform vec2 cloud_shadow_offset;
-uniform int citizen_count = 0;
-uniform vec2 citizen_positions[32];
-uniform float citizen_clear_radius = 4.4;
-uniform float cloud_shadow_cell_size = 0.5;
-uniform float cloud_cell_coverage_threshold = 0.5;
-uniform int excavated_cell_count = 0;
-uniform vec2 excavated_cells[64];
-varying vec2 world_xz;
-
-float hash_cell(vec2 cell) {
-	return fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-float inside_ellipse(vec2 point, vec2 radius) {
-	return 1.0 - step(1.0, length(point / radius));
-}
-
-float raw_cloud_coverage(vec2 moving_position) {
-	const float CELL_SIZE = 34.0;
-	vec2 base_cell = floor(moving_position / CELL_SIZE);
-	float covered = 0.0;
-	for (int x_offset = -1; x_offset <= 1; x_offset++) {
-		for (int y_offset = -1; y_offset <= 1; y_offset++) {
-			vec2 cell = base_cell + vec2(float(x_offset), float(y_offset));
-			float first_seed = hash_cell(cell);
-			float second_seed = hash_cell(cell + vec2(19.0, 7.0));
-			vec2 centre = (cell + vec2(0.2 + first_seed * 0.6, 0.2 + second_seed * 0.6)) * CELL_SIZE;
-			vec2 blob_position = moving_position - centre;
-			vec2 radius = vec2(5.5 + first_seed * 5.0, 4.0 + second_seed * 3.5);
-			float main_blob = inside_ellipse(blob_position, radius);
-			float left_blob = inside_ellipse(blob_position + vec2(radius.x * 0.65, -1.0), radius * vec2(0.62, 0.72));
-			float right_blob = inside_ellipse(blob_position - vec2(radius.x * 0.65, 1.0), radius * vec2(0.68, 0.78));
-			covered = max(covered, max(main_blob, max(left_blob, right_blob)));
-		}
-	}
-	return covered;
-}
-
-float cloud_cell_shadow(vec2 shadow_cell) {
-	vec2 cell_origin = shadow_cell * cloud_shadow_cell_size;
-	vec2 cell_centre = cell_origin + vec2(cloud_shadow_cell_size * 0.5);
-	for (int citizen_index = 0; citizen_index < 32; citizen_index++) {
-		if (citizen_index >= citizen_count) {
-			break;
-		}
-		if (distance(cell_centre, citizen_positions[citizen_index]) <= citizen_clear_radius) {
-			return 0.0;
-		}
-	}
-
-	vec2 sample_offset = vec2(cloud_shadow_cell_size * 0.42);
-	float covered_weight = raw_cloud_coverage(cell_centre - cloud_shadow_offset) * 4.0;
-	covered_weight += raw_cloud_coverage(cell_centre + vec2(-sample_offset.x, -sample_offset.y) - cloud_shadow_offset);
-	covered_weight += raw_cloud_coverage(cell_centre + vec2(sample_offset.x, -sample_offset.y) - cloud_shadow_offset);
-	covered_weight += raw_cloud_coverage(cell_centre + vec2(-sample_offset.x, sample_offset.y) - cloud_shadow_offset);
-	covered_weight += raw_cloud_coverage(cell_centre + sample_offset - cloud_shadow_offset);
-	float estimated_coverage = covered_weight / 8.0;
-	return step(cloud_cell_coverage_threshold + 0.0001, estimated_coverage);
-}
-
-float cloud_coverage(vec2 ground_position) {
-	// Coverage remains binary, but exposed 90-degree cell corners are clipped
-	// to quarter circles like the interpolated fog contour instead of leaving
-	// a staircase made exclusively from sharp rectangles.
-	vec2 scaled_position = ground_position / cloud_shadow_cell_size;
-	vec2 shadow_cell = floor(scaled_position);
-	if (cloud_cell_shadow(shadow_cell) < 0.5) {
-		return 0.0;
-	}
-	vec2 local_position = fract(scaled_position);
-	const float CORNER_RADIUS = 0.38;
-	float west = cloud_cell_shadow(shadow_cell + vec2(-1.0, 0.0));
-	float east = cloud_cell_shadow(shadow_cell + vec2(1.0, 0.0));
-	float north = cloud_cell_shadow(shadow_cell + vec2(0.0, -1.0));
-	float south = cloud_cell_shadow(shadow_cell + vec2(0.0, 1.0));
-	if (west < 0.5 && north < 0.5 && local_position.x < CORNER_RADIUS && local_position.y < CORNER_RADIUS && distance(local_position, vec2(CORNER_RADIUS)) > CORNER_RADIUS) {
-		return 0.0;
-	}
-	if (east < 0.5 && north < 0.5 && local_position.x > 1.0 - CORNER_RADIUS && local_position.y < CORNER_RADIUS && distance(local_position, vec2(1.0 - CORNER_RADIUS, CORNER_RADIUS)) > CORNER_RADIUS) {
-		return 0.0;
-	}
-	if (west < 0.5 && south < 0.5 && local_position.x < CORNER_RADIUS && local_position.y > 1.0 - CORNER_RADIUS && distance(local_position, vec2(CORNER_RADIUS, 1.0 - CORNER_RADIUS)) > CORNER_RADIUS) {
-		return 0.0;
-	}
-	if (east < 0.5 && south < 0.5 && local_position.x > 1.0 - CORNER_RADIUS && local_position.y > 1.0 - CORNER_RADIUS && distance(local_position, vec2(1.0 - CORNER_RADIUS)) > CORNER_RADIUS) {
-		return 0.0;
-	}
-	return 1.0;
-}
-
-void vertex() {
-	world_xz = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xz;
-}
-
-void fragment() {
-	vec2 terrain_cell = floor(world_xz);
-	for (int excavation_index = 0; excavation_index < 64; excavation_index++) {
-		if (excavation_index >= excavated_cell_count) {
-			break;
-		}
-		if (distance(terrain_cell, excavated_cells[excavation_index]) < 0.1) {
-			discard;
-		}
-	}
-	ALBEDO = mix(surface_color.rgb, shadow_color.rgb, cloud_coverage(world_xz));
-	ROUGHNESS = 1.0;
-	EMISSION = ALBEDO * (1.0 - daylight);
-}
-
-void light() {
-	float binary_light = step(0.5, ATTENUATION);
-	// Godot multiplies DIFFUSE_LIGHT by ALBEDO after this function. Supplying
-	// the colour ratio makes the final shadow pixel equal shadow_color rather
-	// than tinting it with the surface (for example gray becoming brown on sand).
-	vec3 shadow_ratio = shadow_color.rgb / max(ALBEDO, vec3(0.001));
-	DIFFUSE_LIGHT += mix(shadow_ratio, vec3(1.0), binary_light) * daylight;
-}
-"""
 	var terrain_material := ShaderMaterial.new()
-	terrain_material.shader = terrain_shader
+	terrain_material.shader = TERRAIN_SHADER
 	terrain_material.set_shader_parameter("surface_color", surface_colour)
 	terrain_material.set_shader_parameter("shadow_color", Palette.FOG_AND_SHADOW)
 	terrain_material.set_shader_parameter("daylight", 1.0)
 	terrain_material.set_shader_parameter("cloud_shadow_offset", Vector2.ZERO)
+	terrain_material.set_shader_parameter("cloud_shadows_enabled", CLOUDS_ENABLED)
 	terrain_material.set_shader_parameter("citizen_clear_radius", REVEAL_RADIUS + 0.4)
 	terrain_material.set_shader_parameter("cloud_shadow_cell_size", FOG_CELL_SIZE)
 	terrain_material.set_shader_parameter("cloud_cell_coverage_threshold", 0.5)

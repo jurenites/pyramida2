@@ -2,31 +2,15 @@ class_name WoodVisual
 extends RefCounted
 
 const DEFAULT_SIDE_COUNT := 6
+const LOG_LENGTH := 0.92
+const LOG_START_RADIUS := 0.145
+const LOG_END_RADIUS := 0.105
+const BINARY_WOOD_SHADER := preload("res://shaders/binary_wood.gdshader")
 
 
 static func binary_material(base_colour: Color) -> ShaderMaterial:
-	var shader := Shader.new()
-	shader.code = """
-shader_type spatial;
-render_mode unshaded;
-
-uniform vec4 bright_color : source_color;
-uniform vec4 dark_color : source_color;
-varying vec3 world_normal;
-
-void vertex() {
-	world_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
-}
-
-void fragment() {
-	vec3 key_direction = normalize(vec3(-0.48, 0.78, -0.4));
-	float bright_side = step(0.18, dot(normalize(world_normal), key_direction));
-	ALBEDO = mix(dark_color.rgb, bright_color.rgb, bright_side);
-	ROUGHNESS = 0.94;
-}
-"""
 	var material := ShaderMaterial.new()
-	material.shader = shader
+	material.shader = BINARY_WOOD_SHADER
 	material.set_shader_parameter("bright_color", base_colour)
 	material.set_shader_parameter("dark_color", base_colour.darkened(0.28))
 	return material

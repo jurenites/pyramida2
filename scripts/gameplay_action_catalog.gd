@@ -10,6 +10,8 @@ const COLLECT_CACTUS := "collect_cactus"
 const EXCAVATE := "excavate"
 const FETCH_LOG := "fetch_log"
 const DELIVER_LOG := "deliver_log"
+const APPLY_BUILDING_BLOCK := "apply_building_block"
+const DELIVER_FOOD := "deliver_food"
 
 ## Every player-ordered Citizen action belongs here. The content contract tests
 ## require a readable English text key and at least one loadable AudioStream for
@@ -41,6 +43,10 @@ const DEFINITIONS := {
 	},
 	DELIVER_LOG: {
 		"text_key": UIText.CITIZEN_CARRYING_LOG_STATUS_TEXT,
+		"audio_streams": [],
+	},
+	DELIVER_FOOD: {
+		"text_key": UIText.CITIZEN_CARRYING_FOOD_STATUS_TEXT,
 		"audio_streams": [],
 	},
 }

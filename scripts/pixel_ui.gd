@@ -1,6 +1,8 @@
 class_name PixelUI
 extends RefCounted
 
+const UIVisualTokens = preload("res://scripts/ui_visual_tokens.gd")
+
 ## Reuses Godot's existing vector fallback font while rasterizing glyphs as if
 ## they were displayed on a low-density monitor: no antialiasing, no subpixel
 ## positioning, four-times-density glyph rasters, nearest texture sampling, and
@@ -50,5 +52,5 @@ static func tooltip_theme() -> Theme:
 	_tooltip_theme.set_stylebox("panel", "TooltipPanel", panel_style)
 	_tooltip_theme.set_color("font_color", "TooltipLabel", Color.WHITE)
 	_tooltip_theme.set_font("font", "TooltipLabel", font())
-	_tooltip_theme.set_font_size("font_size", "TooltipLabel", 14)
+	_tooltip_theme.set_font_size("font_size", "TooltipLabel", UIVisualTokens.TOOLTIP_FONT_SIZE)
 	return _tooltip_theme
