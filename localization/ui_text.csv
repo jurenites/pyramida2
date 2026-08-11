@@ -3,10 +3,23 @@ prototype_title_text,FOUNDATION PROTOTYPE,32,top_left_title,Prototype title
 prototype_instructions_text,Click/drag: select citizens   •   Click ground: deselect   •   Right-click: move or work\nWASD: move camera   •   Right-click tree/site: assign citizen   •   B: building menu,180,top_left_instructions,Keep the two-line structure by preserving the escaped newline
 build_button_tooltip_text,Build,12,top_right_toolbar,Action label shown while hovering over the building button
 greenery_button_tooltip_text,Manage greenery,24,top_right_toolbar,Opens the mode for moving Bushes and Tree Stumps
+landscape_button_tooltip_text,Modify landscape,24,top_right_toolbar,Opens World Unit soil addition and removal tools
 population_tooltip_text,Population,16,top_left_status,Total number of citizens in the current simulation
 simulation_speed_tooltip_text,Speed,24,top_right_toolbar,Click to cycle between one two and four times simulation speed
 remove_building_tooltip_text,Remove building,24,bottom_construction_catalog,Action label shown above the dotted Building removal tool
 excavate_tool_tooltip_text,Excavate,16,bottom_construction_catalog,Landscape tool that creates a Citizen excavation assignment
+add_soil_tool_tooltip_text,Add soil block,24,bottom_landscape_menu,Places one World Unit soil cube on the selected exposed face
+remove_soil_tool_tooltip_text,Remove soil block,24,bottom_landscape_menu,Removes one added soil cube or the clicked base terrain cube
+structure_category_text,Structure,16,bottom_construction_categories,Support and structural construction family
+path_category_text,Path,12,bottom_construction_categories,Road bridge and tunnel construction family
+storage_category_text,Storage,16,bottom_construction_categories,Pile and warehouse construction family
+livable_category_text,Livable,16,bottom_construction_categories,Rooms intended for citizens to occupy
+road_name_text,Road,12,bottom_construction_catalog,One World Unit Hard Surface made from four planks
+rope_bridge_name_text,Rope bridge,20,bottom_construction_catalog,Draggable bridge with a sagging centre
+suspension_bridge_name_text,Suspension bridge,24,bottom_construction_catalog,Draggable bridge with a raised centre
+tunnel_name_text,Tunnel,12,bottom_construction_catalog,Two or more connected excavated and supported Path units
+warehouse_name_text,Warehouse,16,bottom_construction_catalog,One-door enclosed Storage unit
+small_livable_name_text,Small home,16,bottom_construction_catalog,One World Unit Livable building
 support_platform_name_text,Support platform,24,bottom_construction_catalog,Unavailable preview of the next Support upgrade
 pergola_name_text,Pergola,16,bottom_construction_catalog,Unavailable preview of the soft-cover Support form
 livable_house_name_text,Living house,24,bottom_construction_catalog,Unavailable preview of the livable building form
@@ -15,6 +28,7 @@ compass_button_tooltip_text,Reset view,16,bottom_right_compass,Action label show
 building_rotate_hotkey_text,↻  R,8,selected_construction_site_hotkey_hint,Show only while the selected Building remains unfinished; do not expose the reverse modifier here
 building_mode_label_text,BUILD,16,top_left_mode,Short mode label
 greenery_mode_label_text,GREENERY,16,top_left_mode,Shown while moving Bushes or Tree Stumps
+landscape_mode_label_text,LANDSCAPE,16,top_left_mode,Shown while adding or removing terrain cubes
 citizen_mode_label_text,CITIZEN,16,top_left_mode,Shown whenever one or more Citizens are selected for orders
 command_mode_label_text,COMMAND,16,top_left_mode,Short mode label
 day_count_text,Day %d,16,top_left_day_counter,The number replaces %d
@@ -41,6 +55,7 @@ limestone_name_text,Limestone,16,world_hover,World object noun
 log_name_text,Log,16,world_hover,World object noun
 stump_name_text,Stump,16,world_hover,World object noun left after cutting a tree
 sand_name_text,Sand,16,world_hover,World surface noun
+soil_block_name_text,Soil block,16,world_hover,Player-added World Unit terrain cube
 citizen_idle_status_text,Idle,32,citizen_status,Short state label
 citizen_sleeping_status_text,Sleeping,32,citizen_status,Night state while lying on the ground
 citizen_walking_status_text,Walking,32,citizen_status,Short state label

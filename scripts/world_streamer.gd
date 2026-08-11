@@ -62,21 +62,22 @@ static func generated_surface_entities(
 	for local_x in CHUNK_SIZE:
 		for local_z in CHUNK_SIZE:
 			var world_unit := origin + Vector2i(local_x, local_z)
-			var moisture := DeterministicRandomScript.habitat_noise(
+			var moisture: int = DeterministicRandomScript.habitat_noise_fixed(
 				world_unit.x, world_unit.y, world_seed, generator_version * 101 + 1, 13
 			)
-			var fertility := DeterministicRandomScript.habitat_noise(
+			var fertility: int = DeterministicRandomScript.habitat_noise_fixed(
 				world_unit.x, world_unit.y, world_seed, generator_version * 101 + 2, 29
 			)
-			var distribution_roll := DeterministicRandomScript.world_fraction(
+			var distribution_roll: int = DeterministicRandomScript.world_roll(
 				world_unit.x, world_unit.y, world_seed, generator_version * 101 + 3
 			)
-			var tree_density := 0.012 + moisture * fertility * 0.042
-			var dead_tree_density := 0.003 + (1.0 - moisture) * 0.006
-			var bush_density := 0.004 + moisture * 0.014
-			var stone_density := 0.008
-			var cactus_density := 0.002 + (1.0 - moisture) * 0.012
-			var palm_density := 0.002 + moisture * (1.0 - fertility) * 0.006
+			var fixed_scale: int = DeterministicRandomScript.WORLD_FIXED_SCALE
+			var tree_density: int = 12000 + (moisture * fertility * 42000) / (fixed_scale * fixed_scale)
+			var dead_tree_density: int = 3000 + ((fixed_scale - moisture) * 6000) / fixed_scale
+			var bush_density: int = 4000 + (moisture * 14000) / fixed_scale
+			var stone_density := 8000
+			var cactus_density: int = 2000 + ((fixed_scale - moisture) * 12000) / fixed_scale
+			var palm_density: int = 2000 + (moisture * (fixed_scale - fertility) * 6000) / (fixed_scale * fixed_scale)
 			var item_kind := _kind_for_distribution_roll(distribution_roll, [
 				["tree", tree_density],
 				["dead_tree", dead_tree_density],
@@ -102,11 +103,11 @@ static func generated_surface_entities(
 	return entities
 
 
-static func _kind_for_distribution_roll(distribution_roll: float, weighted_kinds: Array) -> String:
-	var threshold := 0.0
+static func _kind_for_distribution_roll(distribution_roll: int, weighted_kinds: Array) -> String:
+	var threshold := 0
 	for weighted_kind_value in weighted_kinds:
 		var weighted_kind := weighted_kind_value as Array
-		threshold += float(weighted_kind[1])
+		threshold += int(weighted_kind[1])
 		if distribution_roll < threshold:
 			return str(weighted_kind[0])
 	return ""

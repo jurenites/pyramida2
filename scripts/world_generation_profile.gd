@@ -13,12 +13,12 @@ var generator_algorithm := CURRENT_ALGORITHM
 var chunk_size := DEFAULT_CHUNK_SIZE
 
 
-static func create_default() -> WorldGenerationProfile:
-	return WorldGenerationProfile.new()
+static func create_default():
+	return load("res://scripts/world_generation_profile.gd").new()
 
 
-static func from_dictionary(data: Dictionary) -> WorldGenerationProfile:
-	var profile := WorldGenerationProfile.new()
+static func from_dictionary(data: Dictionary):
+	var profile = load("res://scripts/world_generation_profile.gd").new()
 	profile.world_seed = int(data.get("world_seed", DEFAULT_WORLD_SEED))
 	profile.generator_version = int(data.get("generator_version", CURRENT_GENERATOR_VERSION))
 	profile.generator_algorithm = str(data.get("generator_algorithm", CURRENT_ALGORITHM))
@@ -26,7 +26,7 @@ static func from_dictionary(data: Dictionary) -> WorldGenerationProfile:
 	return profile
 
 
-static func load_from_path(path: String) -> WorldGenerationProfile:
+static func load_from_path(path: String):
 	if not FileAccess.file_exists(path):
 		return null
 	var file := FileAccess.open(path, FileAccess.READ)
@@ -36,7 +36,7 @@ static func load_from_path(path: String) -> WorldGenerationProfile:
 	if not parsed is Dictionary:
 		return null
 	var data := parsed as Dictionary
-	var profile := from_dictionary(data)
+	var profile = from_dictionary(data)
 	if not profile.is_supported():
 		return null
 	if str(data.get("world_fingerprint", "")) != profile.world_fingerprint():

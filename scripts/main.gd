@@ -16,6 +16,7 @@ const AppliedLabourScript = preload("res://scripts/applied_labour.gd")
 const LabourProgressBarScript = preload("res://scripts/labour_progress_bar.gd")
 const PileStorageScript = preload("res://scripts/pile_storage.gd")
 const TerrainBlockScript = preload("res://scripts/terrain_block.gd")
+const BuildingCatalogScript = preload("res://scripts/building_catalog.gd")
 const CitizenCommandOverlayScript = preload("res://scripts/citizen_command_overlay.gd")
 const WorldStreamerScript = preload("res://scripts/world_streamer.gd")
 const WorldGenerationProfileScript = preload("res://scripts/world_generation_profile.gd")
@@ -73,7 +74,7 @@ var _sun: DirectionalLight3D
 var _environment: Environment
 var _ground_material: ShaderMaterial
 var _world_chunks_root: Node3D
-var _world_generation_profile: WorldGenerationProfile
+var _world_generation_profile
 var _loaded_chunks: Dictionary = {}
 var _chunk_fog_images: Dictionary = {}
 var _chunk_fog_textures: Dictionary = {}
@@ -101,6 +102,7 @@ var _excavation_sites: Array[ExcavationSite] = []
 var _excavated_cells: Dictionary = {}
 var _excavated_pit_roots: Dictionary = {}
 var _terrain_blocks: Dictionary = {}
+var _road_travel_costs: Dictionary = {}
 var _starting_pile: PileStorage
 var _build_mode := false
 var _greenery_mode := false
@@ -139,6 +141,9 @@ var _landscape_button: Button
 var _simulation_speed_button: Button
 var _remove_building_button: Button
 var _build_menu: PanelContainer
+var _build_category := BuildingCatalogScript.CATEGORY_STRUCTURE
+var _build_category_buttons: Dictionary = {}
+var _build_catalog_row: HBoxContainer
 var _landscape_menu: PanelContainer
 var _landscape_add_button: Button
 var _landscape_remove_button: Button
@@ -213,7 +218,7 @@ func _load_or_create_world_generation_profile() -> void:
 	if _world_generation_profile != null:
 		return
 	_world_generation_profile = WorldGenerationProfileScript.create_default()
-	var save_error := _world_generation_profile.save_to_path(WORLD_GENERATION_PROFILE_PATH)
+	var save_error: Error = _world_generation_profile.save_to_path(WORLD_GENERATION_PROFILE_PATH)
 	if save_error != OK:
 		push_warning("World generation profile could not be persisted: %s" % error_string(save_error))
 
@@ -506,6 +511,8 @@ func _greenery_destination_is_available(destination_cell: Vector2i, moving_item:
 		return false
 	if _occupied_static_world_units.has(destination_cell):
 		return false
+	if _terrain_blocks.has(Vector3i(destination_cell.x, 0, destination_cell.y)):
+		return false
 	for item in _items:
 		if (
 			is_instance_valid(item)
@@ -785,7 +792,8 @@ func _assign_group_navigation_task(
 		))
 	citizen.assign_route(
 		route,
-		{"kind": ActionCatalog.MOVE, "status_text_key": UIText.CITIZEN_WALKING_STATUS_TEXT}
+		{"kind": ActionCatalog.MOVE, "status_text_key": UIText.CITIZEN_WALKING_STATUS_TEXT},
+		_road_travel_costs
 	)
 	return true
 
@@ -886,6 +894,8 @@ func _set_selected_citizens(next_selection: Array[Citizen]) -> void:
 		_selected_building = null
 		if is_instance_valid(_build_menu):
 			_build_menu.visible = false
+		if is_instance_valid(_landscape_menu):
+			_landscape_menu.visible = false
 		_refresh_planned_building_visibility()
 
 
@@ -907,6 +917,8 @@ func _select_building(building: SupportConstructionSite) -> void:
 	_removing_buildings = false
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = true
+	if is_instance_valid(_landscape_menu):
+		_landscape_menu.visible = false
 	_refresh_planned_building_visibility()
 
 
@@ -923,6 +935,8 @@ func _enter_build_mode(place_support: bool) -> void:
 	_removing_buildings = false
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = true
+	if is_instance_valid(_landscape_menu):
+		_landscape_menu.visible = false
 	_refresh_planned_building_visibility()
 
 
@@ -944,11 +958,15 @@ func _enter_excavation_mode() -> void:
 	_clear_object_selection()
 	_selected_building = null
 	_build_mode = true
+	_greenery_mode = false
+	_landscape_mode = false
 	_placing_support = false
 	_placing_excavation = true
 	_removing_buildings = false
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = true
+	if is_instance_valid(_landscape_menu):
+		_landscape_menu.visible = false
 	_refresh_planned_building_visibility()
 
 
@@ -1288,7 +1306,7 @@ func _assign_navigation_task(
 	if route.is_empty():
 		citizen.finish_task(UIText.CITIZEN_NO_ROUTE_STATUS_TEXT)
 		return false
-	citizen.assign_route(route, next_task)
+	citizen.assign_route(route, next_task, _road_travel_costs)
 	return true
 
 
@@ -1310,8 +1328,19 @@ func _build_navigation_route(
 		target_position,
 		_navigation_blocked_cells(loaded_component, navigation_region),
 		navigation_region,
-		approach_solid_target
+		approach_solid_target,
+		_road_travel_costs
 	)
+
+
+func _set_road_travel_cell(world_cell: Vector2i, enabled: bool) -> void:
+	if enabled:
+		var road_definition := BuildingCatalogScript.entry("road")
+		_road_travel_costs[world_cell] = float(
+			road_definition.get("travel_cost", GridNavigationScript.ROAD_TRAVEL_COST)
+		)
+	else:
+		_road_travel_costs.erase(world_cell)
 
 
 func _loaded_chunk_component(start_chunk: Vector2i) -> Dictionary:
@@ -1367,6 +1396,10 @@ func _navigation_blocked_cells(loaded_component: Dictionary, navigation_region: 
 			continue
 		if item.item_kind in ["stone", "tree", "dead_tree", "palm_tree", "cactus", "bush"]:
 			blocked[_world_unit_cell(item.global_position)] = true
+	for terrain_coordinate_value in _terrain_blocks:
+		var terrain_coordinate: Vector3i = terrain_coordinate_value
+		if terrain_coordinate.y == 0:
+			blocked[Vector2i(terrain_coordinate.x, terrain_coordinate.z)] = true
 	return blocked
 
 
@@ -1660,6 +1693,15 @@ func _support_placement_evaluation(preview_position: Vector3) -> Dictionary:
 		_mark_support_blocked_by_cell(
 			preview_position,
 			_world_unit_cell(excavation_site.global_position),
+			invalid_quadrants
+		)
+	for terrain_coordinate_value in _terrain_blocks:
+		var terrain_coordinate: Vector3i = terrain_coordinate_value
+		if terrain_coordinate.y != 0:
+			continue
+		_mark_support_blocked_by_cell(
+			preview_position,
+			Vector2i(terrain_coordinate.x, terrain_coordinate.z),
 			invalid_quadrants
 		)
 
@@ -2696,6 +2738,8 @@ func _hover_display_name(world_object: Variant, collider: Node) -> String:
 		return UIText.text(UIText.EXCAVATION_NAME_TEXT)
 	if world_object is PileStorage:
 		return UIText.text(UIText.PILE_NAME_TEXT)
+	if world_object is TerrainBlock:
+		return UIText.text(UIText.SOIL_BLOCK_NAME_TEXT)
 	if world_object is WorldItem:
 		var item := world_object as WorldItem
 		if item.item_kind in ["tree", "dead_tree", "palm_tree"]:
@@ -3159,6 +3203,8 @@ func _update_excavated_ground_mask() -> void:
 
 
 func _create_excavated_pit(world_cell: Vector2i) -> void:
+	if _excavated_pit_roots.has(world_cell):
+		return
 	var pit_root := Node3D.new()
 	pit_root.name = "ExcavatedCell_%d_%d" % [world_cell.x, world_cell.y]
 	pit_root.position = Vector3(float(world_cell.x) + 0.5, 0.0, float(world_cell.y) + 0.5)
@@ -3169,6 +3215,7 @@ func _create_excavated_pit(world_cell: Vector2i) -> void:
 	_create_pit_piece(pit_root, Vector3(0.94, 0.46, 0.06), Vector3(0.0, -0.24, 0.47), pit_material)
 	_create_pit_piece(pit_root, Vector3(0.06, 0.46, 0.94), Vector3(-0.47, -0.24, 0.0), pit_material)
 	_create_pit_piece(pit_root, Vector3(0.06, 0.46, 0.94), Vector3(0.47, -0.24, 0.0), pit_material)
+	_excavated_pit_roots[world_cell] = pit_root
 
 
 func _create_pit_piece(
@@ -3566,6 +3613,14 @@ func _update_day_night() -> void:
 	for item in _items:
 		if is_instance_valid(item) and item.item_kind == "stone":
 			item.set_limestone_cycle(
+				daylight,
+				surface_colour,
+				_sun.global_transform.basis.z.normalized()
+			)
+	for terrain_block_value in _terrain_blocks.values():
+		var terrain_block := terrain_block_value as TerrainBlock
+		if is_instance_valid(terrain_block):
+			terrain_block.set_day_cycle(
 				daylight,
 				surface_colour,
 				_sun.global_transform.basis.z.normalized()
@@ -4097,6 +4152,19 @@ func _create_top_toolbar() -> void:
 	_greenery_button.pressed.connect(_toggle_greenery_mode)
 	_top_toolbar.add_child(_greenery_button)
 
+	_landscape_button = _create_toolbar_button(
+		_create_toolbar_icon("landscape"),
+		UIText.text(UIText.LANDSCAPE_BUTTON_TOOLTIP_TEXT),
+		false,
+		_create_toolbar_icon("landscape_hover")
+	)
+	_landscape_button.name = "LandscapeModeButton"
+	_landscape_button.toggle_mode = true
+	_landscape_button.set_meta("pressed_icon", _create_toolbar_icon("landscape_active"))
+	_landscape_button.pressed.connect(_toggle_landscape_mode)
+	_top_toolbar.add_child(_landscape_button)
+	_create_landscape_menu(toolbar_layer)
+
 	var save_quit_icon := _create_toolbar_icon("save_quit")
 	var save_quit_hover_icon := _create_toolbar_icon("save_quit_hover")
 	var save_quit_button := _create_toolbar_button(
@@ -4405,11 +4473,14 @@ func _enter_greenery_mode() -> void:
 	_placing_excavation = false
 	_removing_buildings = false
 	_selected_building = null
+	_landscape_mode = false
 	_greenery_mode = true
 	_selected_greenery = null
 	_clear_object_selection()
 	if is_instance_valid(_build_menu):
 		_build_menu.visible = false
+	if is_instance_valid(_landscape_menu):
+		_landscape_menu.visible = false
 	_refresh_planned_building_visibility()
 
 
@@ -4417,6 +4488,47 @@ func _leave_greenery_mode() -> void:
 	_greenery_mode = false
 	_selected_greenery = null
 	_clear_object_selection()
+
+
+func _toggle_landscape_mode() -> void:
+	if _landscape_mode:
+		_leave_landscape_mode()
+		return
+	_enter_landscape_mode()
+
+
+func _enter_landscape_mode() -> void:
+	_set_selected_citizens([])
+	_clear_deconstruction_hover_preview()
+	_build_mode = false
+	_greenery_mode = false
+	_selected_greenery = null
+	_placing_support = false
+	_placing_excavation = false
+	_removing_buildings = false
+	_selected_building = null
+	_landscape_mode = true
+	_landscape_tool = "remove"
+	_clear_object_selection()
+	if is_instance_valid(_build_menu):
+		_build_menu.visible = false
+	if is_instance_valid(_landscape_menu):
+		_landscape_menu.visible = true
+	_refresh_planned_building_visibility()
+
+
+func _leave_landscape_mode() -> void:
+	_landscape_mode = false
+	_clear_object_selection()
+	if is_instance_valid(_landscape_menu):
+		_landscape_menu.visible = false
+
+
+func _set_landscape_tool(next_tool: String) -> void:
+	if next_tool not in ["add", "remove"]:
+		return
+	_landscape_tool = next_tool
+	_update_toolbar_mode_state()
 
 
 func _toggle_remove_building_tool() -> void:
@@ -4433,9 +4545,10 @@ func _create_build_menu(toolbar_layer: CanvasLayer) -> void:
 	_build_menu = PanelContainer.new()
 	_build_menu.name = "BottomConstructionCatalog"
 	_build_menu.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	# Two 44-pixel slots, six pixels of separation, and four pixels of panel
-	# margin on each side: 102 pixels centred on the bottom edge.
-	_build_menu.position = Vector2(-51.0, -62.0)
+	# Path is the widest family: four entries plus Remove building. Reserve that
+	# width so changing category does not make the menu jump beneath the cursor.
+	_build_menu.custom_minimum_size = Vector2(252.0, 102.0)
+	_build_menu.position = Vector2(-126.0, -116.0)
 	_build_menu.visible = false
 	_build_menu.theme = PixelUITheme.tooltip_theme()
 	var panel_style := StyleBoxFlat.new()
@@ -4446,20 +4559,75 @@ func _create_build_menu(toolbar_layer: CanvasLayer) -> void:
 	panel_style.set_content_margin_all(4.0)
 	_build_menu.add_theme_stylebox_override("panel", panel_style)
 	toolbar_layer.add_child(_build_menu)
-	var catalog_row := HBoxContainer.new()
-	catalog_row.name = "ConstructionCatalogRow"
-	catalog_row.add_theme_constant_override("separation", 6)
-	_build_menu.add_child(catalog_row)
+	var menu_columns := VBoxContainer.new()
+	menu_columns.name = "ConstructionMenuColumns"
+	menu_columns.add_theme_constant_override("separation", 6)
+	_build_menu.add_child(menu_columns)
 
-	var support_button := _create_toolbar_button(
-		_create_toolbar_icon("support_preview"),
-		UIText.text(UIText.SUPPORT_NAME_TEXT),
-		false,
-		_create_toolbar_icon("support_preview_hover")
-	)
-	support_button.name = "PlaceSupportButton"
-	support_button.pressed.connect(_enter_build_mode.bind(true))
-	catalog_row.add_child(support_button)
+	var category_row := HBoxContainer.new()
+	category_row.name = "ConstructionCategoryRow"
+	category_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	category_row.add_theme_constant_override("separation", 6)
+	menu_columns.add_child(category_row)
+	for category_id in BuildingCatalogScript.CATEGORY_ORDER:
+		var category_button := _create_toolbar_button(
+			_create_toolbar_icon("category_%s" % category_id),
+			UIText.text(BuildingCatalogScript.category_label_key(category_id)),
+			false,
+			_create_toolbar_icon("category_%s_hover" % category_id)
+		)
+		category_button.name = "%sCategoryButton" % category_id.capitalize()
+		category_button.toggle_mode = true
+		category_button.set_meta(
+			"pressed_icon",
+			_create_toolbar_icon("category_%s_active" % category_id)
+		)
+		category_button.pressed.connect(_select_build_category.bind(category_id))
+		category_row.add_child(category_button)
+		_build_category_buttons[category_id] = category_button
+
+	_build_catalog_row = HBoxContainer.new()
+	_build_catalog_row.name = "ConstructionCatalogRow"
+	_build_catalog_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_build_catalog_row.add_theme_constant_override("separation", 6)
+	menu_columns.add_child(_build_catalog_row)
+	_refresh_build_catalog()
+
+
+func _select_build_category(category_id: String) -> void:
+	if category_id not in BuildingCatalogScript.CATEGORY_ORDER:
+		return
+	_build_category = category_id
+	_placing_support = false
+	_placing_excavation = false
+	_removing_buildings = false
+	_refresh_build_catalog()
+	_update_toolbar_mode_state()
+
+
+func _refresh_build_catalog() -> void:
+	if not is_instance_valid(_build_catalog_row):
+		return
+	for previous_button in _build_catalog_row.get_children():
+		_build_catalog_row.remove_child(previous_button)
+		previous_button.queue_free()
+	_remove_building_button = null
+	for entry_value in BuildingCatalogScript.entries_for(_build_category):
+		var definition := entry_value as Dictionary
+		var entry_id := str(definition.get("id", ""))
+		var icon_kind := str(definition.get("icon", ""))
+		var implemented := bool(definition.get("implemented", false))
+		var entry_button := _create_toolbar_button(
+			_create_toolbar_icon(icon_kind),
+			UIText.text(str(definition.get("label_key", ""))),
+			not implemented,
+			_create_toolbar_icon("%s_hover" % icon_kind)
+		)
+		entry_button.name = "%sButton" % entry_id.to_pascal_case()
+		if entry_id == "support":
+			entry_button.name = "PlaceSupportButton"
+			entry_button.pressed.connect(_enter_build_mode.bind(true))
+		_build_catalog_row.add_child(entry_button)
 
 	_remove_building_button = _create_toolbar_button(
 		_create_toolbar_icon("remove_building"),
@@ -4470,7 +4638,49 @@ func _create_build_menu(toolbar_layer: CanvasLayer) -> void:
 	_remove_building_button.name = "RemoveBuildingButton"
 	_remove_building_button.toggle_mode = true
 	_remove_building_button.pressed.connect(_toggle_remove_building_tool)
-	catalog_row.add_child(_remove_building_button)
+	_build_catalog_row.add_child(_remove_building_button)
+
+
+func _create_landscape_menu(toolbar_layer: CanvasLayer) -> void:
+	_landscape_menu = PanelContainer.new()
+	_landscape_menu.name = "BottomLandscapeMenu"
+	_landscape_menu.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_landscape_menu.position = Vector2(-51.0, -62.0)
+	_landscape_menu.visible = false
+	_landscape_menu.theme = PixelUITheme.tooltip_theme()
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color.BLACK
+	panel_style.border_color = Color.WHITE
+	panel_style.set_border_width_all(2)
+	panel_style.set_corner_radius_all(0)
+	panel_style.set_content_margin_all(4.0)
+	_landscape_menu.add_theme_stylebox_override("panel", panel_style)
+	toolbar_layer.add_child(_landscape_menu)
+
+	var tool_row := HBoxContainer.new()
+	tool_row.name = "LandscapeToolRow"
+	tool_row.add_theme_constant_override("separation", 6)
+	_landscape_menu.add_child(tool_row)
+	_landscape_remove_button = _create_toolbar_button(
+		_create_toolbar_icon("terrain_remove"),
+		UIText.text(UIText.REMOVE_SOIL_TOOL_TOOLTIP_TEXT),
+		false,
+		_create_toolbar_icon("terrain_remove_hover")
+	)
+	_landscape_remove_button.name = "RemoveSoilButton"
+	_landscape_remove_button.toggle_mode = true
+	_landscape_remove_button.pressed.connect(_set_landscape_tool.bind("remove"))
+	tool_row.add_child(_landscape_remove_button)
+	_landscape_add_button = _create_toolbar_button(
+		_create_toolbar_icon("terrain_add"),
+		UIText.text(UIText.ADD_SOIL_TOOL_TOOLTIP_TEXT),
+		false,
+		_create_toolbar_icon("terrain_add_hover")
+	)
+	_landscape_add_button.name = "AddSoilButton"
+	_landscape_add_button.toggle_mode = true
+	_landscape_add_button.pressed.connect(_set_landscape_tool.bind("add"))
+	tool_row.add_child(_landscape_add_button)
 
 
 func _create_toolbar_icon(icon_kind: String) -> ImageTexture:
@@ -4698,6 +4908,8 @@ func _update_interface() -> void:
 		return
 	if _build_mode:
 		_ui_mode.text = UIText.text(UIText.BUILDING_MODE_LABEL_TEXT)
+	elif _landscape_mode:
+		_ui_mode.text = UIText.text(UIText.LANDSCAPE_MODE_LABEL_TEXT)
 	elif _greenery_mode:
 		_ui_mode.text = UIText.text(UIText.GREENERY_MODE_LABEL_TEXT)
 	elif not _selected_citizens.is_empty():
@@ -4751,11 +4963,38 @@ func _update_toolbar_mode_state() -> void:
 			_remove_building_button,
 			_remove_building_button.get_meta("normal_icon") as ImageTexture
 		)
+	for category_id in _build_category_buttons:
+		var category_button := _build_category_buttons[category_id] as Button
+		if not is_instance_valid(category_button):
+			continue
+		category_button.set_pressed_no_signal(str(category_id) == _build_category)
+		_set_toolbar_button_icon(
+			category_button,
+			category_button.get_meta("normal_icon") as ImageTexture
+		)
 	if is_instance_valid(_greenery_button):
 		_greenery_button.set_pressed_no_signal(_greenery_mode)
 		_set_toolbar_button_icon(
 			_greenery_button,
 			_greenery_button.get_meta("normal_icon") as ImageTexture
+		)
+	if is_instance_valid(_landscape_button):
+		_landscape_button.set_pressed_no_signal(_landscape_mode)
+		_set_toolbar_button_icon(
+			_landscape_button,
+			_landscape_button.get_meta("normal_icon") as ImageTexture
+		)
+	if is_instance_valid(_landscape_remove_button):
+		_landscape_remove_button.set_pressed_no_signal(_landscape_tool == "remove")
+		_set_toolbar_button_icon(
+			_landscape_remove_button,
+			_landscape_remove_button.get_meta("normal_icon") as ImageTexture
+		)
+	if is_instance_valid(_landscape_add_button):
+		_landscape_add_button.set_pressed_no_signal(_landscape_tool == "add")
+		_set_toolbar_button_icon(
+			_landscape_add_button,
+			_landscape_add_button.get_meta("normal_icon") as ImageTexture
 		)
 
 

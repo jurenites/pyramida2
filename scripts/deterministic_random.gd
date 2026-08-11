@@ -1,6 +1,8 @@
 class_name DeterministicRandom
 extends RefCounted
 
+const WORLD_FIXED_SCALE := 1000000
+
 
 static func coordinate_seed(x_coordinate: int, z_coordinate: int, salt: int) -> int:
 	return absi(x_coordinate * 92837111 + z_coordinate * 689287499 + salt * 283923481)
@@ -35,7 +37,16 @@ static func world_fraction(
 	world_seed: int,
 	channel: int
 ) -> float:
-	return float(world_coordinate_seed(x_coordinate, z_coordinate, world_seed, channel) % 1000001) / 1000000.0
+	return float(world_roll(x_coordinate, z_coordinate, world_seed, channel)) / float(WORLD_FIXED_SCALE)
+
+
+static func world_roll(
+	x_coordinate: int,
+	z_coordinate: int,
+	world_seed: int,
+	channel: int
+) -> int:
+	return world_coordinate_seed(x_coordinate, z_coordinate, world_seed, channel) % (WORLD_FIXED_SCALE + 1)
 
 
 ## Smooth deterministic habitat noise. This affects the probability of a
@@ -49,22 +60,48 @@ static func habitat_noise(
 	channel: int,
 	cell_size := 13
 ) -> float:
+	return float(habitat_noise_fixed(
+		x_coordinate, z_coordinate, world_seed, channel, cell_size
+	)) / float(WORLD_FIXED_SCALE)
+
+
+## Fixed-point equivalent used for permanent generated truth. Keeping every
+## threshold and interpolation step integral prevents architecture-specific
+## floating-point rounding from moving an entity on a threshold boundary.
+static func habitat_noise_fixed(
+	x_coordinate: int,
+	z_coordinate: int,
+	world_seed: int,
+	channel: int,
+	cell_size := 13
+) -> int:
 	var safe_cell_size := maxi(1, cell_size)
 	var lattice_x := floori(float(x_coordinate) / float(safe_cell_size))
 	var lattice_z := floori(float(z_coordinate) / float(safe_cell_size))
-	var local_x := float(x_coordinate - lattice_x * safe_cell_size) / float(safe_cell_size)
-	var local_z := float(z_coordinate - lattice_z * safe_cell_size) / float(safe_cell_size)
-	var smooth_x := local_x * local_x * (3.0 - 2.0 * local_x)
-	var smooth_z := local_z * local_z * (3.0 - 2.0 * local_z)
-	var north_west := world_fraction(lattice_x, lattice_z, world_seed, channel)
-	var north_east := world_fraction(lattice_x + 1, lattice_z, world_seed, channel)
-	var south_west := world_fraction(lattice_x, lattice_z + 1, world_seed, channel)
-	var south_east := world_fraction(lattice_x + 1, lattice_z + 1, world_seed, channel)
-	return lerpf(
-		lerpf(north_west, north_east, smooth_x),
-		lerpf(south_west, south_east, smooth_x),
+	var local_x: int = ((x_coordinate - lattice_x * safe_cell_size) * WORLD_FIXED_SCALE) / safe_cell_size
+	var local_z: int = ((z_coordinate - lattice_z * safe_cell_size) * WORLD_FIXED_SCALE) / safe_cell_size
+	var smooth_x: int = _smoothstep_fixed(local_x)
+	var smooth_z: int = _smoothstep_fixed(local_z)
+	var north_west := world_roll(lattice_x, lattice_z, world_seed, channel)
+	var north_east := world_roll(lattice_x + 1, lattice_z, world_seed, channel)
+	var south_west := world_roll(lattice_x, lattice_z + 1, world_seed, channel)
+	var south_east := world_roll(lattice_x + 1, lattice_z + 1, world_seed, channel)
+	return _lerp_fixed(
+		_lerp_fixed(north_west, north_east, smooth_x),
+		_lerp_fixed(south_west, south_east, smooth_x),
 		smooth_z
 	)
+
+
+static func _smoothstep_fixed(value: int) -> int:
+	return (
+		value * value * (3 * WORLD_FIXED_SCALE - 2 * value)
+		/ (WORLD_FIXED_SCALE * WORLD_FIXED_SCALE)
+	)
+
+
+static func _lerp_fixed(from_value: int, to_value: int, weight: int) -> int:
+	return from_value + ((to_value - from_value) * weight) / WORLD_FIXED_SCALE
 
 
 static func fraction(seed_value: int) -> float:

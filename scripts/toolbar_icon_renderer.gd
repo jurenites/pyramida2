@@ -25,12 +25,6 @@ static func create_icon(icon_kind: String) -> ImageTexture:
 		if icon_kind == "building_active":
 			_fill_polygon(icon_image, building_polygon, Color.BLACK)
 			_draw_building_outline(icon_image, UIVisualTokens.BUILDING_ICON_STROKE_PIXELS, Color.BLACK)
-	elif icon_kind in ["greenery", "greenery_hover", "greenery_active"]:
-		_draw_tree_icon(
-			icon_image,
-			icon_kind == "greenery_hover",
-			icon_kind == "greenery_active"
-		)
 		else:
 			if icon_kind == "building_hover":
 				_draw_building_outline(
@@ -39,6 +33,42 @@ static func create_icon(icon_kind: String) -> ImageTexture:
 					Color.WHITE
 				)
 			_draw_building_outline(icon_image, UIVisualTokens.BUILDING_ICON_STROKE_PIXELS, Color.BLACK)
+	elif icon_kind in ["greenery", "greenery_hover", "greenery_active"]:
+		_draw_tree_icon(
+			icon_image,
+			icon_kind == "greenery_hover",
+			icon_kind == "greenery_active"
+		)
+	elif icon_kind in ["landscape", "landscape_hover", "landscape_active"]:
+		_draw_landscape_icon(
+			icon_image,
+			icon_kind == "landscape_hover",
+			icon_kind == "landscape_active"
+		)
+	elif icon_kind in ["terrain_add", "terrain_add_hover"]:
+		_draw_terrain_tool_icon(icon_image, true, icon_kind == "terrain_add_hover")
+	elif icon_kind in ["terrain_remove", "terrain_remove_hover"]:
+		_draw_terrain_tool_icon(icon_image, false, icon_kind == "terrain_remove_hover")
+	elif icon_kind.begins_with("category_"):
+		var category_kind := icon_kind.trim_prefix("category_")
+		var category_hover := category_kind.ends_with("_hover")
+		var category_active := category_kind.ends_with("_active")
+		category_kind = category_kind.trim_suffix("_hover").trim_suffix("_active")
+		_draw_build_category_icon(icon_image, category_kind, category_hover, category_active)
+	elif icon_kind in [
+		"road", "road_hover",
+		"rope_bridge", "rope_bridge_hover",
+		"suspension_bridge", "suspension_bridge_hover",
+		"tunnel", "tunnel_hover",
+		"pile_building", "pile_building_hover",
+		"warehouse", "warehouse_hover",
+		"small_livable", "small_livable_hover",
+	]:
+		_draw_catalog_building_icon(
+			icon_image,
+			icon_kind.trim_suffix("_hover"),
+			icon_kind.ends_with("_hover")
+		)
 	elif icon_kind in ["remove_building", "remove_building_hover"]:
 		_draw_dotted_building_outline(
 			icon_image,
@@ -125,6 +155,139 @@ static func _draw_tree_icon(target_image: Image, draw_hover: bool, draw_active: 
 			_draw_circle(target_image, crown_centre, 5.5, Color.BLACK)
 		else:
 			_draw_circle_outline(target_image, crown_centre, 5.5, 1.6, Color.BLACK)
+
+
+static func _draw_landscape_icon(target_image: Image, draw_hover: bool, draw_active: bool) -> void:
+	var dirt_pile := PackedVector2Array([
+		Vector2(6, 31), Vector2(10, 23), Vector2(15, 19), Vector2(20, 21),
+		Vector2(25, 17), Vector2(31, 22), Vector2(35, 31),
+	])
+	if draw_hover:
+		_draw_polygon_outline(target_image, dirt_pile, 3.6, Color.WHITE)
+		_draw_line(target_image, Vector2(27, 6), Vector2(18, 24), 3.8, Color.WHITE)
+		_draw_line(target_image, Vector2(15, 22), Vector2(20, 27), 4.8, Color.WHITE)
+	if draw_active:
+		_fill_polygon(target_image, dirt_pile, Palette.LIMESTONE_SIDE)
+	_draw_polygon_outline(target_image, dirt_pile, 1.8, Color.BLACK)
+	_draw_line(target_image, Vector2(27, 6), Vector2(18, 24), 2.3, Palette.ROOF_LOG if draw_active else Color.BLACK)
+	_draw_line(target_image, Vector2(15, 22), Vector2(20, 27), 3.2, Palette.TOOL_METAL if draw_active else Color.BLACK)
+
+
+static func _draw_terrain_tool_icon(target_image: Image, is_add: bool, draw_hover: bool) -> void:
+	var top_face := PackedVector2Array([
+		Vector2(20, 8), Vector2(33, 15), Vector2(20, 22), Vector2(7, 15),
+	])
+	var left_face := PackedVector2Array([
+		Vector2(7, 15), Vector2(20, 22), Vector2(20, 35), Vector2(7, 28),
+	])
+	var right_face := PackedVector2Array([
+		Vector2(20, 22), Vector2(33, 15), Vector2(33, 28), Vector2(20, 35),
+	])
+	if draw_hover:
+		for face in [top_face, left_face, right_face]:
+			_draw_polygon_outline(target_image, face, 3.4, Color.WHITE)
+	_fill_polygon(target_image, top_face, Palette.SAND_SURFACE)
+	_fill_polygon(target_image, left_face, Palette.LIMESTONE_SIDE.darkened(0.16))
+	_fill_polygon(target_image, right_face, Palette.LIMESTONE_SIDE)
+	for face in [top_face, left_face, right_face]:
+		_draw_polygon_outline(target_image, face, 1.3, Color.BLACK)
+	_draw_line(target_image, Vector2(15, 27), Vector2(25, 27), 1.6, Color.BLACK)
+	if is_add:
+		_draw_line(target_image, Vector2(20, 22), Vector2(20, 32), 1.6, Color.BLACK)
+
+
+static func _draw_polygon_outline(
+	target_image: Image,
+	polygon: PackedVector2Array,
+	radius: float,
+	colour: Color
+) -> void:
+	for point_index in polygon.size():
+		_draw_line(
+			target_image,
+			polygon[point_index],
+			polygon[(point_index + 1) % polygon.size()],
+			radius,
+			colour
+		)
+
+
+static func _draw_build_category_icon(
+	target_image: Image,
+	category_kind: String,
+	draw_hover: bool,
+	draw_active: bool
+) -> void:
+	var foreground := Color.BLACK
+	if draw_hover:
+		_draw_circle(target_image, Vector2(20, 20), 15.0, Color.WHITE)
+	if draw_active:
+		_draw_circle(target_image, Vector2(20, 20), 14.0, Palette.LIMESTONE_SIDE)
+	match category_kind:
+		"structure":
+			for point in [Vector2(12, 13), Vector2(28, 13), Vector2(12, 29), Vector2(28, 29)]:
+				_draw_circle(target_image, point, 2.8, foreground)
+			_draw_line(target_image, Vector2(12, 13), Vector2(28, 13), 1.2, foreground)
+			_draw_line(target_image, Vector2(12, 29), Vector2(28, 29), 1.2, foreground)
+		"path":
+			_draw_line(target_image, Vector2(12, 32), Vector2(17, 8), 2.0, foreground)
+			_draw_line(target_image, Vector2(27, 32), Vector2(23, 8), 2.0, foreground)
+		"storage":
+			_draw_line(target_image, Vector2(10, 29), Vector2(30, 29), 2.0, foreground)
+			for stone_x in [12.0, 20.0, 28.0]:
+				_draw_circle(target_image, Vector2(stone_x, 23), 3.2, foreground)
+			_draw_circle(target_image, Vector2(16, 17), 3.2, foreground)
+			_draw_circle(target_image, Vector2(24, 17), 3.2, foreground)
+		"livable":
+			_draw_line(target_image, Vector2(11, 19), Vector2(20, 10), 2.0, foreground)
+			_draw_line(target_image, Vector2(20, 10), Vector2(29, 19), 2.0, foreground)
+			_draw_line(target_image, Vector2(13, 18), Vector2(13, 31), 2.0, foreground)
+			_draw_line(target_image, Vector2(27, 18), Vector2(27, 31), 2.0, foreground)
+			_draw_line(target_image, Vector2(13, 31), Vector2(27, 31), 2.0, foreground)
+			_draw_line(target_image, Vector2(20, 23), Vector2(20, 31), 2.0, foreground)
+
+
+static func _draw_catalog_building_icon(target_image: Image, building_kind: String, draw_hover: bool) -> void:
+	if draw_hover:
+		_draw_circle(target_image, Vector2(20, 20), 17.0, Color.WHITE)
+	match building_kind:
+		"road":
+			for plank_x in [12.0, 17.5, 23.0, 28.5]:
+				_draw_line(target_image, Vector2(plank_x - 4.0, 31), Vector2(plank_x + 4.0, 9), 2.3, Palette.WOODEN_ROOF)
+		"rope_bridge", "suspension_bridge":
+			var sag := 5.0 if building_kind == "rope_bridge" else -2.0
+			for side_y in [14.0, 27.0]:
+				_draw_line(target_image, Vector2(7, side_y), Vector2(20, side_y + sag), 1.5, Palette.ROOF_LOG)
+				_draw_line(target_image, Vector2(20, side_y + sag), Vector2(33, side_y), 1.5, Palette.ROOF_LOG)
+			for plank_x in [10.0, 15.0, 20.0, 25.0, 30.0]:
+				var centre_sag := sag * (1.0 - absf(plank_x - 20.0) / 13.0)
+				_draw_line(
+					target_image,
+					Vector2(plank_x, 14.0 + centre_sag),
+					Vector2(plank_x, 27.0 + centre_sag),
+					1.2,
+					Palette.WOODEN_ROOF
+				)
+		"tunnel":
+			_draw_circle_outline(target_image, Vector2(20, 24), 12.0, 3.0, Palette.LIMESTONE_SIDE)
+			_fill_polygon(target_image, PackedVector2Array([
+				Vector2(8, 24), Vector2(32, 24), Vector2(32, 34), Vector2(8, 34),
+			]), Palette.LIMESTONE_SIDE)
+		"pile_building":
+			for stone_position in [Vector2(9, 30), Vector2(31, 30), Vector2(9, 11), Vector2(31, 11)]:
+				_draw_circle(target_image, stone_position, 2.8, Palette.LIMESTONE_SIDE)
+		"warehouse":
+			_draw_line(target_image, Vector2(9, 14), Vector2(31, 14), 3.0, Palette.WOODEN_ROOF)
+			for post_x in [11.0, 29.0]:
+				_draw_line(target_image, Vector2(post_x, 14), Vector2(post_x, 33), 2.2, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(20, 22), Vector2(20, 33), 2.4, Palette.HOME_DOORWAY)
+		"small_livable":
+			_draw_line(target_image, Vector2(8, 18), Vector2(20, 8), 3.0, Palette.WOODEN_ROOF)
+			_draw_line(target_image, Vector2(20, 8), Vector2(32, 18), 3.0, Palette.WOODEN_ROOF)
+			_draw_line(target_image, Vector2(11, 18), Vector2(11, 33), 2.2, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(29, 18), Vector2(29, 33), 2.2, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(11, 33), Vector2(29, 33), 2.2, Palette.ROOF_LOG)
+			_draw_line(target_image, Vector2(20, 24), Vector2(20, 33), 3.0, Palette.HOME_DOORWAY)
 
 
 static func _draw_completed_support_preview(target_image: Image, draw_hover: bool) -> void:

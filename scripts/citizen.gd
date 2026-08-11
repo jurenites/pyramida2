@@ -21,6 +21,7 @@ var _destination := Vector3.ZERO
 var _is_walking := false
 var _route: Array[Vector3] = []
 var _route_preview: Array[Vector3] = []
+var _route_travel_costs: Dictionary = {}
 var _route_index := 0
 var _elapsed := 0.0
 var _walk_phase := 0.0
@@ -63,8 +64,13 @@ func assign_task(destination: Vector3, next_task: Dictionary) -> void:
 	assign_route(GridNavigationScript.build_direct_route(global_position, destination), next_task)
 
 
-func assign_route(next_route: Array[Vector3], next_task: Dictionary) -> void:
+func assign_route(
+	next_route: Array[Vector3],
+	next_task: Dictionary,
+	next_travel_costs: Dictionary = {}
+) -> void:
 	_route = next_route.duplicate()
+	_route_travel_costs = next_travel_costs
 	_route_preview.clear()
 	_route_preview.append(global_position)
 	_route_preview.append_array(_route)
@@ -87,6 +93,7 @@ func finish_task(
 	_is_walking = false
 	_route.clear()
 	_route_preview.clear()
+	_route_travel_costs = {}
 	_route_index = 0
 	_resume_walking_after_sleep = false
 	status_text_key = next_status_text_key
@@ -208,7 +215,15 @@ func _walk(delta: float) -> void:
 	var offset := _destination - global_position
 	offset.y = 0.0
 	var distance := offset.length()
-	var maximum_step := WALK_SPEED * delta
+	var destination_cell := GridNavigationScript.world_cell(_destination)
+	var destination_cost := float(
+		_route_travel_costs.get(destination_cell, GridNavigationScript.GROUND_TRAVEL_COST)
+	)
+	var surface_speed_multiplier := GridNavigationScript.GROUND_TRAVEL_COST / maxf(
+		GridNavigationScript.ROAD_TRAVEL_COST,
+		destination_cost
+	)
+	var maximum_step := WALK_SPEED * surface_speed_multiplier * delta
 	var direction := offset / distance if distance > 0.0 else Vector3.ZERO
 	var intended_position := global_position + direction * minf(distance, maximum_step)
 	if distance <= maximum_step:
@@ -224,7 +239,7 @@ func _walk(delta: float) -> void:
 
 	global_position = intended_position
 	look_at(global_position + direction, Vector3.UP, true)
-	_walk_phase += TAU * WALK_SPEED * delta / STRIDE_LENGTH
+	_walk_phase += TAU * WALK_SPEED * surface_speed_multiplier * delta / STRIDE_LENGTH
 	_animate_walk()
 
 

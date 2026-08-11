@@ -88,6 +88,10 @@ A `Hard Surface` is a walkable form of the Surface construction family. A Hard S
 
 `Greenery Mode` is the player mode opened by the Tree icon beside the Building icon. It allows one Bush or rooted Tree Stump to be selected and re-rooted into a revealed, loaded, unoccupied World Unit. Re-rooting preserves the object's Permanent Detail Seed, resource cooldown, and growth timer. Greenery Mode does not relocate standing Trees, loose Logs, or terrain.
 
+## Landscape Mode
+
+`Landscape Mode` is the direct World Unit terrain-editing mode opened by the dirt-pile-and-shovel icon. Its Remove Soil tool removes an authored Soil Block or one flat base cube. Its Add Soil tool restores that base cube or places a new Soil Block against a valid exposed face. The current prototype stores only changed coordinates and does not allocate complete underground columns.
+
 ## Icon Number
 
 An `Icon Number` is the shared interface element that pairs one object icon with an integer or an installed/required fraction. A Standard Icon Number remains fixed at the same 44×44 icon size as the Building and Quit toolbar buttons. A Full Scale Icon Number changes only the icon from 1× at maximum camera zoom-out to 2× at maximum camera zoom-in, preserving the represented Physical Resource or world object's apparent scale; the number font size remains fixed. A Compact Icon Number keeps both icon size and number font size fixed for dense summaries. Population uses a Standard Icon Number, selected Construction Site materials use Full Scale Icon Numbers, and each selected-Pile resource uses a Compact Icon Number.
@@ -95,6 +99,14 @@ An `Icon Number` is the shared interface element that pairs one object icon with
 ## Permanent Detail Seed
 
 A `Permanent Detail Seed` is deterministic data used to reproduce safe visual variation for a persistent world element. A Permanent Detail Seed may control details such as log bend, plank spacing, colour variation, wear, or idle-motion phase. A Permanent Detail Seed must not change logical geometry.
+
+## Path
+
+A `Path` is a Building family containing Road, Bridge, and Tunnel forms. Citizens do not require a Path to navigate. Instead every traversable surface has a travel cost, and a completed Path may offer a lower cost or connect elevations that ordinary ground cannot connect.
+
+## Road
+
+A `Road` is a one-World-Unit Hard Surface made from four material-specific surface components, such as four wooden Planks. A Road has a lower traversal cost and a corresponding higher Citizen walking speed. A wooden Road constructed above a four-Log Support combines with it as a Support Platform.
 
 ## Pile
 
@@ -119,6 +131,10 @@ A `Soft Cover` is a non-walkable form of the Surface construction family. A Soft
 ## Sparse World Delta
 
 A `Sparse World Delta` records a persistent difference from the deterministic base world, such as excavated terrain, a placed Building, changed entity state, or a tombstone for a removed generated entity. Unchanged base terrain is not a Sparse World Delta.
+
+## Soil Block
+
+A `Soil Block` is one player-authored solid terrain cube occupying exactly one World Unit at an integer height from `0` through `255`. It is distinct from the implicit generated base surface and from a carried Physical Resource. A Soil Block has collision and may be attached to any exposed face of another Soil Block.
 
 ## Sub-Unit
 

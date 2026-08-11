@@ -15,9 +15,12 @@ Implemented surface milestone:
 - Per-chunk fog images with persistent sparse discovery coordinates.
 - Per-chunk grass candidate creation and disposal.
 - Deterministic resource entities outside the origin fixture.
+- A persisted `world_generation_profile.json` identity containing the seed, immutable generator version, algorithm identifier, chunk size, and reproducibility fingerprint.
+- Generator version 2 uses a stable SHA-256 coordinate avalanche plus fixed-point seeded habitat fields, removing the diagonal resource bands produced by the earlier linear coordinate formula without making permanent placement depend on CPU floating-point rounding.
 - Distant chunk unloading, regenerated untouched entities, in-memory state overlays for changed entities, and removal tombstones.
+- Sparse runtime Landscape deltas for authored Soil Blocks and removed implicit base cubes, without allocating full `16×16×256` voxel arrays.
 
-The state overlay is runtime-only. The current `Quit` button exits without serializing chunk deltas; there is no Save-and-Quit implementation yet.
+The generation identity is persisted, but the changed-world state overlay is still runtime-only. Landscape edits remain materialized for the current session and are not yet unloaded with distant chunks. The current `Quit` button exits without serializing chunk deltas; there is no complete Save-and-Quit implementation yet.
 
 This document defines a horizontally unbounded world with a fixed vertical range. The player does not choose a map width when starting a game. The explored world becomes only as large as the player makes it through Citizen movement.
 
@@ -83,7 +86,7 @@ base value = generator(world seed, generator version, integer coordinate, query 
 
 The generator must support random access. Generating one chunk must not depend on which neighbouring chunk was visited first or on a shared random-number stream. Separate salted deterministic queries select biome variation, surface height, geology, vegetation, water, city candidates, and permanent visual detail.
 
-A save records both the world seed and generator version. Released generator versions are immutable for existing saves. A later generator may be used for new games, but loading an old game must preserve its old base world.
+A world identity record is created at the beginning and records the world seed, generator version, algorithm identifier, chunk size, and a short fingerprint. Released generator versions are immutable for existing saves. A later generator may be used for new games, but loading an old game must preserve its old base world. QA can reproduce the base world from this identity without copying every untouched entity into the save.
 
 Generated terrain and entities are not copied into the save merely because they were rendered. The save owns only discovery state, persistent simulation state, and differences from the generated base.
 

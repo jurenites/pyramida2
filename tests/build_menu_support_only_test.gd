@@ -30,13 +30,24 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 
+	var category_row := game.find_child("ConstructionCategoryRow", true, false) as HBoxContainer
 	var catalog_row := game.find_child("ConstructionCatalogRow", true, false) as HBoxContainer
+	_check(is_instance_valid(category_row), "Construction category row was not created")
 	_check(is_instance_valid(catalog_row), "Construction catalog row was not created")
-	if is_instance_valid(catalog_row):
+	if is_instance_valid(category_row):
 		_check(
-			catalog_row.get_child_count() == 2,
-			"Building menu must contain Support followed by Remove building"
+			category_row.get_child_count() == 4,
+			"Building menu must contain Path, Storage, Livable, and Structure categories"
 		)
+		var expected_categories := ["Path", "Storage", "Livable", "Structure"]
+		for category_index in mini(expected_categories.size(), category_row.get_child_count()):
+			_check(
+				(category_row.get_child(category_index) as Button).name
+				== "%sCategoryButton" % expected_categories[category_index],
+				"Building category order changed"
+			)
+	if is_instance_valid(catalog_row):
+		_check(catalog_row.get_child_count() == 2, "Structure must contain Support and Remove building")
 		if catalog_row.get_child_count() == 2:
 			var support_button := catalog_row.get_child(0) as Button
 			_check(support_button.name == "PlaceSupportButton", "First Building entry is not Support")
@@ -61,11 +72,30 @@ func _run() -> void:
 				"Remove building icon is not a sparse dotted Building outline"
 			)
 
+	game.call("_select_build_category", "path")
+	_check(catalog_row.get_child_count() == 5, "Path must contain four Path forms and Remove building")
+	var expected_path_entries := [
+		"RoadButton", "RopeBridgeButton", "SuspensionBridgeButton", "TunnelButton",
+	]
+	for path_index in expected_path_entries.size():
+		var path_button := catalog_row.get_child(path_index) as Button
+		_check(path_button.name == expected_path_entries[path_index], "Path entry order changed")
+		_check(path_button.disabled, "Unimplemented Path entry became falsely playable")
+
+	game.call("_select_build_category", "storage")
+	_check(catalog_row.get_child_count() == 3, "Storage must contain Pile, Warehouse, and Remove building")
+	_check((catalog_row.get_child(0) as Button).name == "PileButton", "Storage does not begin with Pile")
+	_check((catalog_row.get_child(1) as Button).name == "WarehouseButton", "Storage has no Warehouse")
+
+	game.call("_select_build_category", "livable")
+	_check(catalog_row.get_child_count() == 2, "Livable must contain Small home and Remove building")
+	_check((catalog_row.get_child(0) as Button).name == "SmallLivableButton", "Livable has no Small home")
+
 	if _failures.is_empty():
-		print("PASS: Support and Remove building menu")
+		print("PASS: categorized Building menu")
 		quit(0)
 		return
-	printerr("FAIL: Support and Remove building menu (%d failures)" % _failures.size())
+	printerr("FAIL: categorized Building menu (%d failures)" % _failures.size())
 	for failure in _failures:
 		printerr("- %s" % failure)
 	quit(1)

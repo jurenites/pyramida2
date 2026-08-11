@@ -64,6 +64,11 @@ func _run() -> void:
 	var first_generation := WorldStreamer.generated_surface_entities(Vector2i(62, 0))
 	var second_generation := WorldStreamer.generated_surface_entities(Vector2i(62, 0))
 	_check(first_generation == second_generation, "Chunk generation changes between identical queries")
+	var world_profile = game.get("_world_generation_profile")
+	_check(world_profile != null, "World generation identity was not loaded at startup")
+	if world_profile != null:
+		_check(world_profile.generator_version == 2, "The active world does not use generator version 2")
+		_check(not world_profile.world_fingerprint().is_empty(), "World generation identity has no fingerprint")
 
 	var far_position := Vector3(1000.5, 0.0, 0.5)
 	var far_chunk := WorldStreamer.chunk_for_world_position(far_position)

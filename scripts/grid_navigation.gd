@@ -6,6 +6,8 @@ const NEIGHBOUR_OFFSETS: Array[Vector2i] = [
 	Vector2i(-1, 0), Vector2i(1, 0),
 	Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1),
 ]
+const GROUND_TRAVEL_COST := 1.35
+const ROAD_TRAVEL_COST := 1.0
 
 
 static func world_cell(world_position: Vector3) -> Vector2i:
@@ -58,7 +60,8 @@ static func build_route_in_region(
 	target_position: Vector3,
 	blocked_cells: Dictionary,
 	region: Rect2i,
-	approach_solid_target: bool
+	approach_solid_target: bool,
+	travel_costs: Dictionary = {}
 ) -> Array[Vector3]:
 	var start_cell := world_cell(start_position)
 	var target_cell := world_cell(target_position)
@@ -66,7 +69,7 @@ static func build_route_in_region(
 	route_blockers.erase(start_cell)
 	if not region.has_point(start_cell) or not region.has_point(target_cell):
 		return []
-	var astar := _create_astar_for_region(region, route_blockers)
+	var astar := _create_astar_for_region(region, route_blockers, travel_costs)
 	var reachable_cells := _reachable_cells(start_cell, route_blockers, astar.region)
 	var candidates := _target_candidates(
 		target_cell,
@@ -74,7 +77,13 @@ static func build_route_in_region(
 		route_blockers,
 		astar.region
 	)
-	var shortest_path := _shortest_path(astar, start_cell, candidates, reachable_cells)
+	var shortest_path := _shortest_path(
+		astar,
+		start_cell,
+		candidates,
+		reachable_cells,
+		travel_costs
+	)
 	if shortest_path.is_empty() and not approach_solid_target:
 		var fallback_cell := _closest_reachable_cell(target_cell, start_cell, reachable_cells)
 		if reachable_cells.has(fallback_cell):
@@ -119,16 +128,33 @@ static func _create_astar(half_extent: float, blocked_cells: Dictionary) -> ASta
 	)
 
 
-static func _create_astar_for_region(region: Rect2i, blocked_cells: Dictionary) -> AStarGrid2D:
+static func _create_astar_for_region(
+	region: Rect2i,
+	blocked_cells: Dictionary,
+	travel_costs: Dictionary = {}
+) -> AStarGrid2D:
 	var astar := AStarGrid2D.new()
 	astar.region = region
 	astar.cell_size = Vector2.ONE
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
 	astar.update()
+	for world_x in range(region.position.x, region.end.x):
+		for world_z in range(region.position.y, region.end.y):
+			astar.set_point_weight_scale(
+				Vector2i(world_x, world_z),
+				GROUND_TRAVEL_COST
+			)
 	for blocked_cell_value in blocked_cells:
 		var blocked_cell: Vector2i = blocked_cell_value
 		if astar.region.has_point(blocked_cell):
 			astar.set_point_solid(blocked_cell, true)
+	for travel_cell_value in travel_costs:
+		var travel_cell: Vector2i = travel_cell_value
+		if astar.region.has_point(travel_cell) and not blocked_cells.has(travel_cell):
+			astar.set_point_weight_scale(
+				travel_cell,
+				maxf(ROAD_TRAVEL_COST, float(travel_costs[travel_cell]))
+			)
 	return astar
 
 
@@ -152,16 +178,30 @@ static func _shortest_path(
 	astar: AStarGrid2D,
 	start_cell: Vector2i,
 	candidates: Array[Vector2i],
-	reachable_cells: Dictionary
+	reachable_cells: Dictionary,
+	travel_costs: Dictionary = {}
 ) -> Array[Vector2i]:
 	var shortest_path: Array[Vector2i] = []
+	var shortest_cost := INF
 	for candidate in candidates:
 		if not reachable_cells.has(candidate):
 			continue
 		var id_path: Array[Vector2i] = astar.get_id_path(start_cell, candidate)
-		if not id_path.is_empty() and (shortest_path.is_empty() or id_path.size() < shortest_path.size()):
+		var path_cost := _path_travel_cost(id_path, travel_costs)
+		if not id_path.is_empty() and path_cost < shortest_cost:
 			shortest_path.assign(id_path)
+			shortest_cost = path_cost
 	return shortest_path
+
+
+static func _path_travel_cost(path: Array[Vector2i], travel_costs: Dictionary) -> float:
+	var total := 0.0
+	for path_index in range(1, path.size()):
+		var previous := path[path_index - 1]
+		var current := path[path_index]
+		var diagonal_multiplier := sqrt(2.0) if previous.x != current.x and previous.y != current.y else 1.0
+		total += diagonal_multiplier * float(travel_costs.get(current, GROUND_TRAVEL_COST))
+	return total
 
 
 static func _world_route(
