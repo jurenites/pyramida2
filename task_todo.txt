@@ -1,0 +1,105 @@
+Game architecture
+Question: Do we use a state machine in this game?
+
+Game files
+Blender give me nan error, when I tried to open the 3d object asset from a game, we might not need an exported version in a text format i've been thinking what would be the best format of storing buildings in a game and how to load assets from a dist and how to make it convenient during development process.
+I got this error message from a Blender 5.2.0
+Report: Error
+File format is not supported in file "/Users/alexanderilivanov/Projects/pyramida_2/data/buildings/exports/four_log_support.obj"
+goal to keep only one source of truth and that source of truth 3d object needed to be understood by Game itself the blender and the Build constructor into agame where player can snap and move the construction materials into a 3d scene of a building.
+
+Game files
+lets move all the recipes (the cost is a certain building block materials that needed for a construciton-site tin order to complete building ) and the labour of force applied time into a separate setting text based file, where it can be fine-tuned and configured the processes in a game,
+we also need to add there the standard speed of a citizen walking bare feet, and other parameter you can imagine, those parameters should be a all capital letter
+
+Visual bug: 
+Strange lines or strips on surfaces during midday under sunlight in Godot are called shadow acne or shadow map artefacts. They happen when the DirectionalLight3D bias settings are too low, causing the engine to miscalculate whether a surface is in light or shadow. Need to fix the shadows on flat surfaces, try increasing the Bias value slightly.
+
+Functional game bug: 
+the issue is "grass disappeared", where did it go? Probably we removed it at some point in time by mistake. Let's bring "grass" back. 
+
+World Generation Bug: 
+it seems to be at the first time when we are loading the surrounding area; it looks good when we have trees settled inside some sort of forest. The further I go through the world, it starts not looking convincing. It's sort of generated differently from where it was in the start of the game and when it's revealed through the fog of war. Let's make it consistent and make trees sitting near trees and palms sit near palms, making some forests. Same applies to limestone patches here and there. It shouldn't happen so often, but the patches themselves need to be bigger, like 16 blocks in one patch. With different random shapes, but try to avoid overhang boulders. That has no support from stones underneath it, so stones need to naturally stick out of the ground, not hang  in the air. 
+
+Game logic bug: 
+while in "building mode," the red badge appeared at the top-left corner with some number; I have no clue what it does, and let's hide this red badge from there 
+
+Visual bug: when a citizen sleeps, we don't need to display a circle shadow under the citizen, because it's night in the first place, and also selecting a Citizen that is lying down is hard to unit, its need to click exactly where the feet are. Let's probably change the sleeping position closer to the actual center of the position where the citizen is lying. 
+Disable Unit Shadows when Sleeping: Set the shadow sprite/renderer active state to false whenever a citizen enters the IsSleeping state.
+
+Functional bug: When I add more piles, expecting them to bring their gathered resources too, the Citizen somehow gets stuck when only the first pile is filled in and stops bringing resources. I've noticed that one citizen could not bring collected berries,
+ 
+Visual bug. Let's treat the gathered resource brought back to the pile (or warehouse its same type of building that contains the other gathering resources)
+counted devilry to a side of a pile and spend 1 second of labour applied but do not display progress bar of applied labour, when the carried resourced send to a pile, the issue is when the Citizen stays next to a pile and there is a resource to gather, the citizen sorta not even moving order to deliver resource staying o na edge, lets say to gather resource of a Bushes or tree or grass the citizen stays In a center of that tile, and at least citizen need to walk a 50% of a resources tile to bring the resource, and also lets make a threshold of "delivered" resource not I na middle of a pile, but at least travel a 50% of a single standard world unit to count as delivered resource, 
+
+Logical bug. I've noticed that when a citizen makes a "plank" out of the "log": the citizen doesn't bring the resulting "plank" back to the stockpile. the "plank" just teleports into the pile somehow. That's not the correct way of "carrying a physical-world thing" from one place A to another place B. The basic format is:
+The citizen takes a "log". citizen brings it to the "sawmill" building, "applying force" for some time duration.
+3In the citizen's hand, the "log" disappears, and a "plank" appears. we need to be careful with duping we should tread a resource gathered with a unique UDID identification that can either be in citizens hand on a flor on a "pile"(warehouse) inside some build structure or construction site,  thats probably all the scenarios that "Log" could be in, we will destroy log UDID and convert it to a new "Plank" UDID when the workforce applied I na sawmill by Citizen (for later maybe it will be automated so no Citizen required to "apply force" action take that in mind, and duration of "applied forces" also can varying, currently most of the time its a set to a 3 second)
+
+Visual bug: this is the way how log icons are shown in the whole game. It's currently using some pixel art. We don't need that. We can use an actual log 3D object model when it's, for example, lying in the pile. Same type of looking elements. I don't want everything to be a pixel graphic except certain icons. I wanna make a persistent understanding of how the user's eye reads elements to show them that the "log" in the game-physical world and "log" on the user interface are the same thing. Please replace the way the icon number of a storage is displaying the log, the way the construction site is displaying the log, and every other place where it's used. 
+
+Game logic. It should play to itself so that when there is no player input for a while, or the player is just observing the Citizen without a task, it needs to wander around and then go to the city center, maybe if it exists, and do some labor on its own. For example:
+- sorting
+- carrying 
+- finding some resources lying on the floor around to find the task for itself
+I'm not sure what it should be, but this mechanic is needed. We can add some to-dos for later.
+
+The re-directional instruction to a citizen when the Citizen is carrying something and I deliberately send that citizen to go into a "pile" (or "warehouse"): the new task needs to emerge: deliver this resource to the storage building, 
+Carried by citizen resource logic. When the citizen is carrying the log from a chopped tree and is currently in the working condition of a lumberjack, and palyer send this lumberjack ("tree cutter") with a Log in hand to a construction site, it means this construction site needs to be built, and the person will be redirected to go and construct a building. in case building lack of a resource that carrying currently citizen example "Support 1/4" building still need a 3logs in it, and player can send a delivery of 3 logs into that building and when the log is delivered to a construction-site the Citizen can immediately start Building that building because new resources delivered and Labour of 3 second can be applied to the construction site, but if Citizen carrying berries, and send to construct a building and that building has "Support 3/4" on e log remaining the Citizen and if on a walking distance pile has a Log, than this citizen n will confirm with s speech bubble that citizen will go to build a building "Support 3/4" the citizen need a "log" for him to carry, so Citizen will bring with in a "Berries" that initially were carried to the pile (or warehouse) than citizen will take a log, and carry that log to construction site and will continue construction cycle, and third case 
+when citizen carrying something that to a pile that does not contain any "log', than this citizen will drop what he carting right now and will be redirected to "find" nearby the log either laying around or in a "pile", and will leave berries on a ground (surface), the left resource on a ground does not require any of the Labour work to collect it, its immediately picked up,
+We need to configure this type of logic later on in a game because there could be different scenarios: what would be the best action to perform. for example if construction site has delivered logs, but the 3 seconds of a labour not applied, and citizen walking by so player want to finish the constructor with current citizen walking by, the citizen should not GO to the pile and bring not needed log, the citizen immediately drop everything carries, and then go to construction site worker, continuing construction in a loop, and probably the player after making a citizen a construction worked briefly will ask to take the berry pick up from a floor where it was dropped so citizen will continued delivery of a berries, and then will stop, (because citizen was not assigned to be gatherer, citizen last time were assigned to work "delivery")  
+2. Delivery & Storage Bug Fixes
+Storage Cascade Bug Fix
+Problem: Citizens stall/freeze when their primary target pile fills up.
+Specification: When a citizen arrives at a full pile, trigger a re-pathing check:
+Search for the nearest alternative storage/warehouse that accepts the carried item and has space.
+If found, re-route the citizen.
+If no valid storage exists, transition the citizen to a DropOnGround state or Idle / Blocked state.
+Delivery Interaction & Visual Polish
+Labor Timer without UI Bar: Delivering resources to a storage pile takes 1.0 second of labor, but the progress bar UI overhead is hidden to prevent visual clutter.
+Manual Storage Redirect: If the player manually orders a citizen who is carrying a resource directly to a storage site, immediately cancel their current task and assign the higher-priority task: Deliver Carried Item to Target Storage.
+
+Detailed Case RulesCase 1 (Matches Required Material):Condition: Citizen carries a Log; Construction Site needs Logs (e.g., 1/4).Action: Citizen walks directly to site $\rightarrow$ Deposits Log (Site becomes 2/4) $\rightarrow$ Automatically begins applying construction labor (3 seconds per step).Case 2 (Mismatched Material, Target Material Stored):Condition: Citizen carries Berries; Construction Site needs Logs (1/4); Logs exist in nearby storage.Action: Show speech bubble feedback $\rightarrow$ Citizen carries Berries to Storage $\rightarrow$ Drops Berries $\rightarrow$ Picks up Log from Storage $\rightarrow$ Delivers Log to Construction Site $\rightarrow$ Performs construction labor.Case 3 (Mismatched Material, Target Material Loose/Not in Storage):Condition: Citizen carries Berries; Construction Site needs Logs; Storage has no Logs (but loose Logs exist on the map).Action: Citizen drops Berries on the ground immediately (0 labor required to drop or pick up loose ground items) $\rightarrow$ Walks to nearby loose Log $\rightarrow$ Picks up Log $\rightarrow$ Delivers to site & constructs.Case 4 (Materials Fully Delivered, Only Labor Needed):Condition: Site materials are satisfied (e.g., Logs 4/4), but construction labor is pending.Action: Citizen drops carried items on the ground instantly $\rightarrow$ Proceeds directly to construction site $\rightarrow$ Performs construction labor loop until build complete.
+
+
+Visual bug: the shadow under the citizen is not the same color as our shadows in the game. Let's fix that. So the shadow witch under the Citizen will have exactly the same HEX code color as the shadow or fog-of-war
+
+Visual fixes for the trunks of the living trees and palms and the limestones vertically stacked in them from the ground. We need to have two colors of those vertical lines, so if it's a semi-cylindrical shape or even a cube shape, we have one face highlighted with sun and another face sitting in the shadow of the sun, not being directly highlighted with sunlight beams. 
+
+World generation "limestone" looks like a separate (smaller than the actual world size unit cube) rectangular shape taken out of the ground. It should be a solid block of material like we have in our tool 'landscape mode'.
+
+Change text from: "landscape mode" in the text of the game, shown to the user, to two shorter "Terraforming"
+
+In logic currently the height of our Citizen is much taller than the standard height of the world unit as far as I understand from there. Terraforming tool: our basic road unit is those cubes that stick out of the ground or are being cut off from the ground. Considering that our tree is only one and a half the size of a human being, which is not quite true. Let's reduce the height of our Citizen to one unit block instead of two unit blocks' height. I probably meant to say the Citizen height is two sub-squares. It's 1/8 + 1/8 the size of a standard-world-block. 
+
+Game building: The movement of our Citizen junkies still doesn't look good. Let's make it also be exportable to the usual 3D modeling tools like Blender so I can modify those 3D objects and 3D animation on my own. You need to keep the layer names correct, like layer called head or layer called torso and a layer called leg. Eventually, I want the citizen to look like it was done with the DOOM technique, when it's always facing the user camera and looks like it's a 2D spline but it won't be like that in reality. It will be 3D animation calculated automatically, how it's called, because I don't want to deal with sprites for the different angles. It's not possible to make them it will be too many sprites to handle so I want the 3D engine to solve it for me but it will be stylized as if it's always facing the user camera. It will be possible to rotate it later when, for example, the Citizen is static and sleeping so we will see his torso from certain angles. 
+
+The appearance changes the way we select an object. The way we select the one world standard size cube is fine with one white-rectangule at top surface Faces and one white-rectangule in bottom surface Faces.  Let's change that into an actual cell shading calculation. When I select a cube in the world, it looks like I am looking into a six-corner shape. When I select a tree, it will outline the whole tree, exactly showing how it sticks out from the other trees. Same applies to other objects, such as a cactus or even a log lying on the floor. It will be applicable to every object in the game world to have cell shading around the object. On select, on hover mode. It is also applicable to the citizens themselves so its hover is wrapped around their body, ignoring the blankets or other extra details. On hover we see exactly which citizen we are going to select right now and on click, if the custom cursor is moved out from that citizen, only the circle selection remains to be visible showing that fact that this Citizen was selected. 
+
+Game logic. Let's change a building mode, the landscape mode, and tree greenery mode. When I'm on any of these modes and have not selected something to build (meaning I can select with my cursor on something on the road), when I drag it and one of the citizens is caught, it means I no longer want to be in that mode. I switch it, turn it off, and select exactly the citizen I captured. 
+
+Visual appearance: let's change how the paths walkable line displays; currently the line itself is shown exactly from the Citizen center point. of the circle-selection of the citizen selection. Let's move that Line to start only at the edge of the circle-selection so it does not start exactly in the center of a circle but on the edge of the circle. The line itself extends the circle in a certain direction and finishes it with a dot. 
+
+Game logic, RTS, so let's make our hotkeys apply. 
+ Control Groups Work: Create Group: Press Ctrl + Number (saves current units to that key). Add to Group: Press Shift + Number (adds new units to that key).Find Group: Press Number once (jumps camera to the group) or double-press it (centres screen on the group).
+Numbers available  1 2 3 4 5 6 7 8 9 0. Number keys are selected no matter what, even if the player is in building mode. Immediately turn off this building mode and switch to citizen selection.
+
+Change how greenery mode works to change some grass and greenery. Currently, when I select a bush, I can click left mouse button, and it will immediately jump there. That's not how I want it. It's cool to have, but in some sort of dev mode or God mode of the game, we don't need it right now. In the greenery mode we will. Let's make a certain construction site, like I want to construct a bush in a certain area, or I want to construct a tree in a certain area. When a tree is planted it's only visible as a small sapling sticking out of the ground with only one leaf sticking out. It will need to be distinctly and visibly different from the way the other plants look. Also, the player will be able to plant cacti and plant bushes. They will all look different in the growing mode. Also I forgot, of course, the palm tree. And in that mode, we will have the same dig-out: basically, remove the tree, and we will have a tool to move the tree. When we select a bush, like right now, we will have the option to move it somewhere, and it will require labor to carve the bush out of the ground. It will take three seconds of labor force. Then in another place where it's placed, with a #gray, semi-transparent 50% color, as if it's looking like a construction site but it doesn't have on the four corners; this stick will look different. Just soil will be sort of prepared automatically for replanting so the user can see and differentiate which is a building construction site and which is a greenery construction site. So the logic should be identical and we only differentiate between buildings and greenery in a different submenu to make it easier for the Player to grasp it. 
+
+
+
+on a sand id've al let's add a footsteps effect, and they will commutative effect of them will make aw itch more often taken by citizens need t ohavea bility to bake ito not into a  have too many different objects stored in a game, simply It can be brush painting o na surface, and we will add surface texture sorta. to the game, lets think indirection, also it need to be worked with pathfinding, i've noticed different citizen can find co ndifferent route that look natural and all , unbut it make a n coomon routes trodden paths crom a citizen made collectively using same path over and obecveause of point of interensts
+
+on a snow lets add a seamless trail effect by citizen going throug it, it will be more visible than simglple steps and not dissapear so fast as ataril in a water.
+
+
+_________________________________________________________________________________________
+Architecture of a game
+https://www.youtube.com/watch?v=8WqYQ1OwxJ4
+
+
+Building a "solar panel" size one standard unit size; it is also angled the same angle as a roof does so it is possible to put it over the roofs. Also able to put it on a surface, but it will have a support structure beneath it. 
+They are stackable and make a seamless, almost a pattern when two or more are merged together.
+
+
+The "bamboo scaffolding" like in Hong Kong while they build concrete buildings. (not fully deceieded how to make it)
