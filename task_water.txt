@@ -1,12 +1,13 @@
 ________________________________________________________________________________________
 
 Water simulation
-Let's implement this suggestion and see where it would lead us. So we need a "water" type of tile that fills in to a certain %. We might not deal width ecivamls and can round it to whole numbers for display mode, or move in 10% steps for visual effect; the 12% of water 
-  looks like 1/10 of a cube filled in with very shallow water, and when it's an 89% it looks like a 9/10 deep blue water. again referenaec of Pplorach from a Minecraft toy of water; we probably need a "Falling" water.
+Let's implement this suggestion and see where it would lead us. So we need a "water" type of tile that fills in to a certain %. We might not deal width decimals and can round it to whole numbers for display mode, or move in 10% steps for visual effect; the 12% of water 
+  looks like 1/10 of a cube filled in with very shallow water, and when it's an 89% it looks like a 9/10 deep blue water. again reference of approach from a Minecraft toy of water; we probably need a "Falling" water.
 
-We also can add the effect of rain; Minecraft has simple, small #blue #6CAACA rectangles falling down. We also might make a "puddle" look so it gathers on a flat surface, like 1% of water in a cube; we can work in the direct drainage and collecting of water and to be part of a game. And make it work, not exactly fancy physics as the Timber-born game does, but I thing its plausible; we need to add custom_field_parameter in a "water cube": the "stream direction," "stream flow size" (it's a vector, I guess), and how much water is passed by in order to calver aculte ind s can be placed water-wheel. Build and connect it to a mill or a hammer
+We also can add the effect of rain; Minecraft has simple, small #blue #6CAACA rectangles falling down. We also might make a "puddle" look so it gathers on a flat surface, like 1% of water in a cube; we can work in the direct drainage and collecting of water and to be part of a game. And make it work, not exactly fancy physics as the Timber-born game does, but I thing its plausible; we need to add custom_field_parameter in a "water cube": the "stream direction," "stream flow size" (it's a vector, I guess), and how much water is passed by in order to calculate amount of water can be placed water-wheel. Build and connect it to a mill or a hammer
 _________________________________________________________________________________________
 
+Level of Water 
 
 by Obbe Vermeij (developer of Plentiful), he replaces traditional frame-by-frame per-tile cellular automata with a Region-Based Lake & Flow Field System [01:52]. This approach allows large lakes to stay perfectly flat instantly without lag or wave propagation delays [01:23]. Below is the complete architectural breakdown and step-by-step implementation guide for your game.1. System Architecture Overview. Instead of running height checks on thousands of individual water tiles every frame [00:38], the system is split into three core components:                         +--------------------------+
                          |     Terrain Mod / Rain   |
@@ -52,18 +53,18 @@ Advantage: Updating the water level of a 5,000-tile lake requires modifying one 
 }
 Component 4: Lake Merging, Overflow, and SplittingA. Merging LakesWhen two adjacent lakes rise until their water levels match or submerge the land ridge separating them, merge the smaller lake's tiles and volume into the larger lake [02:08].B. Lake OverflowFind the lowest perimeter land tile (the outlet) bordering the lake [00:30].When lake.waterLevel > outletHeight:Any excess volume above outletHeight spills over the outlet.Spawn water particles at the outlet that travel along the Flow Map to lower basins [00:30].C. Splitting Lakes (Triggered on Drain or Block Placement)Splitting is processor-intensive, so run it only when a player places a wall across a lake or when the water level drops below a terrain saddle point [02:18].C#public void CheckLakeSplit(Lake lake, Vector2Int modifiedTile) 
 {
-    // Run a Breadth-First Search (BFS) across lake.tiles
-    List<HashSet<Vector2Int>> subBasins = FloodFillSubBasins(lake);
-    
-    if (subBasins.Count > 1) 
-    {
-        // Split into separate Lake instances [00:02:25]
-        foreach (var basinTiles in subBasins) 
-        {
-            CreateNewLakeFromTiles(basinTiles, lake.totalVolume / subBasins.Count);
-        }
-        DestroyLake(lake);
-    }
+	// Run a Breadth-First Search (BFS) across lake.tiles
+	List<HashSet<Vector2Int>> subBasins = FloodFillSubBasins(lake);
+	
+	if (subBasins.Count > 1) 
+	{
+		// Split into separate Lake instances [00:02:25]
+		foreach (var basinTiles in subBasins) 
+		{
+			CreateNewLakeFromTiles(basinTiles, lake.totalVolume / subBasins.Count);
+		}
+		DestroyLake(lake);
+	}
 }
 Component 5: Soil Absorption & Plant Evaporation To keep water levels dynamic and prevent endless map flooding [04:36]: Wet Mud / Absorption: Sand/soil adjacent to a lake absorbs water $\rightarrow$ decreases lake.total Volume while turning the ground into wet mud [04:18]. Plants / Crops: Trees extract moisture from wet mud to grow food [04:26].Evaporators (Reeds): Plant species that absorb excess water at maximum levels and convert it into steam, serving as a natural drain mechanism [04:43].Comparison SummaryFeatureTraditional Cellular AutomataPlentiful's Lake System [01:52]Performance Cost$O(N)$ every frame ($N = \text{water tiles}$) [01:44]$O(1)$ per frame + $O(\text{particles})$Lake LevellingTakes hundreds of frames to equalize [01:23]Instantaneous flat surface [02:00]Rain TransportHeavy grid updatesLightweight vector particle flow [02:58]Terrain EditsAutomatic (slow)Re-bakes local Flow Map & checks BFS split [02:18]Video source: Obbe Vermeij - I Simulated Every Drop of Water in My Game
 
@@ -73,26 +74,26 @@ using System.Collections.Generic;
 
 public class VoxelFlowField
 {
-    // Evaluates a 3D coordinate and returns the best downhill direction
-    public static Vector3Int GetFlowDirection(Vector3Int pos, VoxelGrid grid)
-    {
-        // 1. Gravity Priority: If the block below is air, water falls straight down
-        if (grid.GetBlock(pos.x, pos.y - 1, pos.z) == BlockType.Air)
-        {
-            return Vector3Int.down;
-        }
+	// Evaluates a 3D coordinate and returns the best downhill direction
+	public static Vector3Int GetFlowDirection(Vector3Int pos, VoxelGrid grid)
+	{
+		// 1. Gravity Priority: If the block below is air, water falls straight down
+		if (grid.GetBlock(pos.x, pos.y - 1, pos.z) == BlockType.Air)
+		{
+			return Vector3Int.down;
+		}
 
-        // 2. Lateral Flow: Find the lowest reachable neighbor via Breadth-First Search (BFS)
-        // We look for a drop-off (cliff) within a small radius (e.g., 4 blocks)
-        Vector3Int bestDrop = FindNearestDropOff(pos, grid, radius: 4);
-        
-        if (bestDrop != pos)
-        {
-            // Return the normalized lateral direction toward the drop-off
-            return GetDirectionToward(pos, bestDrop);
-        }
+		// 2. Lateral Flow: Find the lowest reachable neighbor via Breadth-First Search (BFS)
+		// We look for a drop-off (cliff) within a small radius (e.g., 4 blocks)
+		Vector3Int bestDrop = FindNearestDropOff(pos, grid, radius: 4);
+		
+		if (bestDrop != pos)
+		{
+			// Return the normalized lateral direction toward the drop-off
+			return GetDirectionToward(pos, bestDrop);
+		}
 
-        // 3. No drop-off found (it's a flat basin) -> flow spreads outward or pools
+		// 3. No drop-off found (it's a flat basin) -> flow spreads outward or pools
         return Vector3Int.zero; 
     }
 
@@ -176,45 +177,45 @@ using System.Collections.Generic;
 
 public partial class VoxelLake
 {
-    // Called when remainingVolume > 0 after filling the current Y-level capacity
-    private void TriggerOverflow(int overflowY, float excessVolume, VoxelGrid grid)
-    {
-        // 1. Find all valid escape points at the current water level
-        List<Vector3Int> spillways = FindOverflowEdges(overflowY, grid);
+	// Called when remainingVolume > 0 after filling the current Y-level capacity
+	private void TriggerOverflow(int overflowY, float excessVolume, VoxelGrid grid)
+	{
+		// 1. Find all valid escape points at the current water level
+		List<Vector3Int> spillways = FindOverflowEdges(overflowY, grid);
 
-        if (spillways.Count == 0)
-        {
-            // Edge case: Reached the absolute top of the world with no escape.
-            // You can either delete the water, evaporate it, or flood the world ceiling.
-            return;
-        }
+		if (spillways.Count == 0)
+		{
+			// Edge case: Reached the absolute top of the world with no escape.
+			// You can either delete the water, evaporate it, or flood the world ceiling.
+			return;
+		}
 
-        // 2. Distribute the excess volume evenly among all spillways
-        float volumePerSpillway = excessVolume / spillways.Count;
+		// 2. Distribute the excess volume evenly among all spillways
+		float volumePerSpillway = excessVolume / spillways.Count;
 
-        // 3. Convert excess volume into active falling water / particles
-        foreach (Vector3Int spillPoint in spillways)
-        {
-            SpawnFallingWater(spillPoint, volumePerSpillway, grid);
-        }
-        
-        // 4. Update lake volume to reflect the lost water
-        this.totalVolume -= excessVolume;
-    }
+		// 3. Convert excess volume into active falling water / particles
+		foreach (Vector3Int spillPoint in spillways)
+		{
+			SpawnFallingWater(spillPoint, volumePerSpillway, grid);
+		}
+		
+		// 4. Update lake volume to reflect the lost water
+		this.totalVolume -= excessVolume;
+	}
 
-    private List<Vector3Int> FindOverflowEdges(int overflowY, VoxelGrid grid)
-    {
-        List<Vector3Int> spillways = new List<Vector3Int>();
+	private List<Vector3Int> FindOverflowEdges(int overflowY, VoxelGrid grid)
+	{
+		List<Vector3Int> spillways = new List<Vector3Int>();
 
-        // 4 horizontal neighbors (North, South, East, West)
-        Vector3Int[] directions = {
-            new Vector3Int(1, 0, 0),
-            new Vector3Int(-1, 0, 0),
-            new Vector3Int(0, 0, 1),
-            new Vector3Int(0, 0, -1)
-        };
+		// 4 horizontal neighbors (North, South, East, West)
+		Vector3Int[] directions = {
+			new Vector3Int(1, 0, 0),
+			new Vector3Int(-1, 0, 0),
+			new Vector3Int(0, 0, 1),
+			new Vector3Int(0, 0, -1)
+		};
 
-        // Get the lake's surface blocks at the overflow Y-level
+		// Get the lake's surface blocks at the overflow Y-level
         HashSet<Vector3Int> surfaceBlocks = GetBlocksAtLevel(overflowY);
 
         foreach (Vector3Int block in surfaceBlocks)
@@ -230,10 +231,10 @@ public partial class VoxelLake
                     Vector3Int flowDir = VoxelFlowField.GetFlowDirection(neighbor, grid);
 
                     // If flowDir is NOT zero, it means gravity pulls water away here.
-                    // This is our basin's lip.
-                    if (flowDir != Vector3Int.zero)
-                    {
-                        // Add to spillways (ensure we don't add the same block twice)
+					// This is our basin's lip.
+					if (flowDir != Vector3Int.zero)
+					{
+						// Add to spillways (ensure we don't add the same block twice)
                         if (!spillways.Contains(neighbor))
                         {
                             spillways.Add(neighbor);
@@ -246,26 +247,26 @@ public partial class VoxelLake
         return spillways;
     }
 
-    // Helper to filter the lake's blocks by Y-level
-    private HashSet<Vector3Int> GetBlocksAtLevel(int yLevel)
-    {
-        HashSet<Vector3Int> blocksAtY = new HashSet<Vector3Int>();
-        foreach (Vector3Int block in waterBlocks)
-        {
-            if (block.y == yLevel)
-            {
-                blocksAtY.Add(block);
-            }
-        }
-        return blocksAtY;
-    }
+	// Helper to filter the lake's blocks by Y-level
+	private HashSet<Vector3Int> GetBlocksAtLevel(int yLevel)
+	{
+		HashSet<Vector3Int> blocksAtY = new HashSet<Vector3Int>();
+		foreach (Vector3Int block in waterBlocks)
+		{
+			if (block.y == yLevel)
+			{
+				blocksAtY.Add(block);
+			}
+		}
+		return blocksAtY;
+	}
 
-    private void SpawnFallingWater(Vector3Int position, float volume, VoxelGrid grid)
-    {
-        // Here you instantiate a dynamic water entity that travels along the Flow Map
-        // until it hits a new basin, where it will add its volume to the new lake.
-        WaterParticleManager.Spawn(position, volume);
-    }
+	private void SpawnFallingWater(Vector3Int position, float volume, VoxelGrid grid)
+	{
+		// Here you instantiate a dynamic water entity that travels along the Flow Map
+		// until it hits a new basin, where it will add its volume to the new lake.
+		WaterParticleManager.Spawn(position, volume);
+	}
 }
 How This Behaves in Gameplay
 Sheer Cliffs (Waterfalls): If the lake reaches the edge of a cliff, the adjacent block is Air, and the block below it is also Air. The VoxelFlowField returns Vector3Int.down. The code identifies this as a spillway and water falls straight down.
@@ -292,8 +293,8 @@ public class WaterParticle
     public float volume;
     public float moveCooldown; // Controls flow speed
     
-    // Optional: Keep track of whether it's falling or flowing laterally for visual effects
-    public bool isFalling; 
+	// Optional: Keep track of whether it's falling or flowing laterally for visual effects
+	public bool isFalling; 
 }
 2. The Water Particle Manager
 This manager evaluates each active particle every frame (or game tick). It queries the VoxelFlowField to get the next step, and uses a LakeManager to deposit the water when it reaches a basin.
@@ -304,11 +305,11 @@ using System.Collections.Generic;
 
 public class WaterParticleManager : MonoBehaviour
 {
-    public static WaterParticleManager Instance;
-    
-    private List<WaterParticle> activeParticles = new List<WaterParticle>();
-    
-    // References to your game's world grids
+	public static WaterParticleManager Instance;
+	
+	private List<WaterParticle> activeParticles = new List<WaterParticle>();
+	
+	// References to your game's world grids
     private VoxelGrid grid;
     private LakeManager lakeManager;
 
@@ -342,45 +343,45 @@ public class WaterParticleManager : MonoBehaviour
             WaterParticle p = activeParticles[i];
             p.moveCooldown -= dt;
 
-            // Wait until it's time to move to the next block
-            if (p.moveCooldown > 0) continue;
+			// Wait until it's time to move to the next block
+			if (p.moveCooldown > 0) continue;
 
-            // 1. Where does gravity/terrain pull this water?
-            Vector3Int flowDir = VoxelFlowField.GetFlowDirection(p.position, grid);
+			// 1. Where does gravity/terrain pull this water?
+			Vector3Int flowDir = VoxelFlowField.GetFlowDirection(p.position, grid);
 
-            // 2. Basin reached! Water has nowhere else to flow.
-            if (flowDir == Vector3Int.zero)
-            {
-                lakeManager.DepositWater(p.position, p.volume);
-                activeParticles.RemoveAt(i);
-                continue;
-            }
+			// 2. Basin reached! Water has nowhere else to flow.
+			if (flowDir == Vector3Int.zero)
+			{
+				lakeManager.DepositWater(p.position, p.volume);
+				activeParticles.RemoveAt(i);
+				continue;
+			}
 
-            Vector3Int nextPosition = p.position + flowDir;
+			Vector3Int nextPosition = p.position + flowDir;
 
-            // 3. Did we hit an existing lake mid-flow? (e.g., falling into a lake)
-            if (lakeManager.IsLakeBlock(nextPosition))
-            {
-                lakeManager.DepositWater(nextPosition, p.volume);
-                activeParticles.RemoveAt(i);
-                continue;
-            }
+			// 3. Did we hit an existing lake mid-flow? (e.g., falling into a lake)
+			if (lakeManager.IsLakeBlock(nextPosition))
+			{
+				lakeManager.DepositWater(nextPosition, p.volume);
+				activeParticles.RemoveAt(i);
+				continue;
+			}
 
-            // 4. Move the particle
-            p.position = nextPosition;
-            
-            // Set speed based on direction
-            p.isFalling = (flowDir.y < 0);
-            p.moveCooldown = p.isFalling ? fallSpeed : flowSpeed;
-            
-            // (Optional) Update visual representation (like moving a mesh or particle effect)
-            UpdateParticleVisuals(p);
-        }
-    }
+			// 4. Move the particle
+			p.position = nextPosition;
+			
+			// Set speed based on direction
+			p.isFalling = (flowDir.y < 0);
+			p.moveCooldown = p.isFalling ? fallSpeed : flowSpeed;
+			
+			// (Optional) Update visual representation (like moving a mesh or particle effect)
+			UpdateParticleVisuals(p);
+		}
+	}
 
-    private void UpdateParticleVisuals(WaterParticle p)
-    {
-        // Link this logic to Unity's ParticleSystem, or spawn a temporary "Flowing Water" 
+	private void UpdateParticleVisuals(WaterParticle p)
+	{
+		// Link this logic to Unity's ParticleSystem, or spawn a temporary "Flowing Water" 
         // voxel block at p.position that lasts for a fraction of a second.
     }
 }

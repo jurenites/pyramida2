@@ -2,7 +2,7 @@
 
 Status: Version 2 implementation, subordinate to `scripts/building_blueprint.gd` and its tests.
 
-The Building Constructor saves human-readable `.pyrbuilding` JSON. A blueprint remains a collection of logical physical parts; it is never flattened into one decorative mesh. Version 2 is the authoritative game asset, recipe, and interchange source. Blender-compatible OBJ files are generated from it rather than maintained as a second model.
+The Building Constructor saves human-readable `.pyrbuilding` JSON. A blueprint remains a collection of logical physical parts; it is never flattened into one decorative mesh. Version 2 is authoritative for recipes, Sub-Unit occupancy, resource kinds, construction order, and workshop processes. An official Building may have a neighboring `.obj` whose named objects provide the editable runtime vertices for those same part IDs.
 
 ## Version 2 scope
 
@@ -14,22 +14,38 @@ The Building Constructor saves human-readable `.pyrbuilding` JSON. A blueprint r
 - Supported materials are Wood, Limestone, Marble, and Concrete.
 - Decorative parts consume no construction resource. This is how the Pile's four marker stones remain free.
 - A recipe may be derived from physical parts or explicitly declared.
-- Workshop recipes store physical inputs, outputs, and work seconds. Sawmill encodes `1 Log → 1 Plank` in `3` seconds.
+- Workshop recipes may store physical inputs, outputs, and work seconds. A Sawmill process can therefore encode `1 Log → 1 Plank` in `3` seconds without requiring Blender-only metadata.
 - `visual_variant` is `0`, `1`, or `2` and changes appearance without changing function or recipe.
 
 Every part stores its identity, kind, material, source resource, Sub-Unit address, orientation, visual variant, and explicit geometry. Logs store start/end points and radii. Blocks and Planks store centre, size, and rotation. Explicit geometry lets later constructor tools add endpoint dragging, diagonal parts, and overhangs without changing the basic file model.
 
 For derived recipes, each non-decorative part contributes one resource and its stored `resource` must match its kind and material. The included [Four Log Support](data/buildings/four_log_support.pyrbuilding) therefore produces `{ "log": 4 }`, while [Platform](data/buildings/platform.pyrbuilding) produces `{ "log": 4, "plank": 4 }`.
 
-## Blender export
+## Blender round trip
 
-Run:
+Build the local Blender extension:
 
 ```sh
-/Applications/Godot.app/Contents/MacOS/Godot --headless --rendering-driver dummy --path . --script tools/export_official_building_assets.gd
+python3 -B tools/package_blender_extension.py
 ```
 
-The generated OBJ files are under `data/buildings/exports/`. Blender imports them with **File → Import → Wavefront (.obj)**. One OBJ unit equals one Pyramida World Unit and one Blender metre. Object names and comments preserve part IDs, resource kinds, and Sub-Unit addresses.
+This creates `dist/pyramida_building_tools-0.1.0.zip`. In Blender 4.2 or newer, use **Edit → Preferences → Get Extensions → Install from Disk**, choose that ZIP, and enable **Pyramida Building Tools** if Blender does not enable it automatically.
+
+Use **File → Import → Pyramida Building (.pyrbuilding)** when changing logical parts, resource metadata, Sub-Unit placement, or recipes. Every Log, Plank, or Block remains a separate Blender object with Pyramida metadata. The **Pyramida** panel can snap selected parts to the half-World-Unit Sub-Unit grid. Export with **File → Export → Pyramida Building (.pyrbuilding)**, then regenerate the neighboring OBJ.
+
+Pyramida/Godot uses Y-up coordinates while Blender uses Z-up. The extension converts coordinates in both directions. One Pyramida World Unit equals one Blender metre; one Sub-Unit is `0.5 m` on each axis.
+
+## Runtime OBJ geometry
+
+Official Building pairs sit at the same level, for example `four_log_support.pyrbuilding` and `four_log_support.obj`. The OBJ object names must exactly match the `.pyrbuilding` part IDs. Godot uses the OBJ vertices while the blueprint decides which resource each named part consumes and when it becomes visible during construction.
+
+In Blender use **File → Import → Wavefront (.obj)**, edit vertices without renaming required objects, then **File → Export → Wavefront (.obj)** over the same file. **File → Open** is only for `.blend` files and reports that OBJ is unsupported. OBJ cannot carry recipes or construction semantics, so geometry-only edits never replace the neighboring blueprint.
+
+To reset Building geometry from `.pyrbuilding`, run:
+
+```sh
+/Applications/Godot.app/Contents/MacOS/Godot --headless --rendering-driver dummy --path . --script tools/export_official_building_assets.gd --log-file /tmp/pyramida-obj-export.log
+```
 
 ## Development workflow
 
@@ -38,6 +54,6 @@ The generated OBJ files are under `data/buildings/exports/`. Blender imports the
 3. Use `1`, `2`, and `3` for Block, Log, and Plank; `M` changes material; `R` changes axis; `V` changes the visual variant; `Y` switches between the lower and upper four Sub-Units.
 4. `Tab` switches between gray edit mode and the actual material preview.
 5. `Ctrl+S` saves to `user://blueprints/developer_world_unit.pyrbuilding`. `Ctrl+Shift+S` opens Save As, and `Ctrl+O` imports an existing `.pyrbuilding` file.
-6. An approved file may be placed under `res://data/buildings/`, added to the official export list, and shipped as an official prefab plus generated OBJ.
+6. An approved file and its matching named-part OBJ may be placed under `res://data/buildings/` and shipped as an official prefab.
 
-Runtime construction, previews, completed models, recipes, and OBJ export all load the same file through `BuildingBlueprint.load_from_file(path)`. No parallel prefab format should be introduced.
+Runtime construction reads paired concerns: `.pyrbuilding` supplies meaning and the neighboring OBJ supplies vertices. The same part IDs bind them. Export presets must include `data/buildings/*.pyrbuilding`, `data/buildings/*.obj`, and `data/props/*.obj`; these files are loaded through `FileAccess` and must not be omitted merely because Godot also creates imported mesh caches.

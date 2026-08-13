@@ -1,6 +1,8 @@
 class_name BuildingCatalog
 extends RefCounted
 
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
+
 const CATEGORY_STRUCTURE := "structure"
 const CATEGORY_PATH := "path"
 const CATEGORY_STORAGE := "storage"
@@ -27,7 +29,6 @@ const ENTRIES := {
 			"label_key": "support_name_text",
 			"icon": "support_preview",
 			"footprint": Vector3i(1, 1, 1),
-			"recipe": {"log": 4},
 			"asset_path": "res://data/buildings/four_log_support.pyrbuilding",
 			"implemented": true,
 		},
@@ -36,7 +37,6 @@ const ENTRIES := {
 			"label_key": "platform_name_text",
 			"icon": "platform",
 			"footprint": Vector3i(1, 1, 1),
-			"recipe": {"log": 4, "plank": 4},
 			"asset_path": "res://data/buildings/platform.pyrbuilding",
 			"implemented": true,
 		},
@@ -45,11 +45,7 @@ const ENTRIES := {
 			"label_key": "sawmill_name_text",
 			"icon": "sawmill",
 			"footprint": Vector3i(1, 1, 1),
-			"recipe": {"log": 10},
 			"asset_path": "res://data/buildings/sawmill.pyrbuilding",
-			"workshop_recipes": [
-				{"id": "saw_plank", "input": {"log": 1}, "output": {"plank": 1}, "work_seconds": 3.0},
-			],
 			"entry_points": 4,
 			"implemented": true,
 		},
@@ -60,8 +56,6 @@ const ENTRIES := {
 			"label_key": "road_name_text",
 			"icon": "road",
 			"footprint": Vector3i(1, 1, 1),
-			"recipe": {"plank": 4},
-			"travel_cost": 1.0,
 			"upgrade_when_above": "support",
 			"upgrade_result": "support_platform",
 			"implemented": false,
@@ -100,7 +94,6 @@ const ENTRIES := {
 			"label_key": "pile_name_text",
 			"icon": "pile_building",
 			"footprint": Vector3i(2, 1, 2),
-			"recipe": {},
 			"asset_path": "res://data/buildings/pile.pyrbuilding",
 			"resizable_connected_footprint": true,
 			"implemented": true,
@@ -110,7 +103,6 @@ const ENTRIES := {
 			"label_key": "warehouse_name_text",
 			"icon": "warehouse",
 			"footprint": Vector3i(1, 1, 1),
-			"recipe": {"log": 4, "plank": 4},
 			"door_count": 1,
 			"citizen_navigation": {"door": "passable", "walls": "hard_block"},
 			"merge_on_facing_door": true,
@@ -123,8 +115,6 @@ const ENTRIES := {
 			"label_key": "small_livable_name_text",
 			"icon": "small_livable",
 			"footprint": Vector3i(1, 1, 1),
-			"recipe": {"log": 4, "plank": 8},
-			"standalone_roof_recipe": {"log": 4, "hay": 4},
 			"door_count": 1,
 			"merge_on_facing_door": true,
 			"implemented": false,
@@ -134,7 +124,10 @@ const ENTRIES := {
 
 
 static func entries_for(category_id: String) -> Array:
-	return (ENTRIES.get(category_id, []) as Array).duplicate(true)
+	var result := (ENTRIES.get(category_id, []) as Array).duplicate(true)
+	for definition_value in result:
+		_hydrate_gameplay_settings(definition_value as Dictionary)
+	return result
 
 
 static func category_label_key(category_id: String) -> String:
@@ -154,3 +147,19 @@ static func citizen_face_blocks(building_id: String, face_kind: String) -> bool:
 	var definition := entry(building_id)
 	var navigation := definition.get("citizen_navigation", {}) as Dictionary
 	return str(navigation.get(face_kind, "hard_block")) == "hard_block"
+
+
+static func _hydrate_gameplay_settings(definition: Dictionary) -> void:
+	var building_id := str(definition.get("id", ""))
+	definition["recipe"] = GameplaySettingsScript.construction_recipe(building_id)
+	if building_id == "road":
+		definition["travel_cost"] = GameplaySettingsScript.ROAD_TRAVEL_COST
+	if building_id == "small_livable":
+		definition["standalone_roof_recipe"] = GameplaySettingsScript.SMALL_LIVABLE_STANDALONE_ROOF_RECIPE.duplicate(true)
+	if building_id == "sawmill":
+		definition["workshop_recipes"] = [{
+			"id": "saw_plank",
+			"input": GameplaySettingsScript.SAWMILL_PLANK_INPUT.duplicate(true),
+			"output": GameplaySettingsScript.SAWMILL_PLANK_OUTPUT.duplicate(true),
+			"work_seconds": GameplaySettingsScript.SAWMILL_PLANK_LABOUR_SECONDS,
+		}]

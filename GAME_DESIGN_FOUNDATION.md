@@ -338,7 +338,7 @@ The long-term asset workflow includes an in-game `Building Constructor`; it is n
 - Saving a prefab stores logical parts, transforms, material types, ports, and grouping. It does not flatten the result into an opaque decorative mesh.
 - Editing a prefab must preserve the distinction between changing the reusable definition and customizing only one placed instance.
 
-An experimental one-World-Unit Building Constructor is entered with `F2`. It edits the canonical eight Sub-Units, supports Block, Log, and Plank parts, switches between gray edit mode and material preview, derives a resource recipe, and reads or writes human-readable `.pyrbuilding` JSON. The current JSON round-trip contract reports a logical-part type mismatch, so the format is not stable and is not integrated with Construction Sites. Multi-World-Unit bounds, multiple parts inside one Sub-Unit, free endpoint manipulation, nested grouping, and player-facing sandbox access remain deferred.
+An experimental Building Constructor is entered with `F2`. It edits canonical Sub-Units, supports Block, Log, and Plank parts, switches between gray edit mode and material preview, derives a resource recipe, and reads or writes human-readable Version 2 `.pyrbuilding` JSON. That file is authoritative for Building meaning; a neighboring named-part OBJ is authoritative for editable runtime vertices. Multiple World Units and multiple logical parts inside one Sub-Unit are supported by the format. Free endpoint manipulation inside the game, nested grouping, and player-facing sandbox access remain deferred.
 
 ## 5. Citizen movement and animation
 

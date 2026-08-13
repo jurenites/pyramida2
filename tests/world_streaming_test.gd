@@ -38,9 +38,12 @@ func _run() -> void:
 		_check(boundary_stones.size() == 4, "Pile does not have four boundary stones")
 		for boundary_stone_value in boundary_stones:
 			var boundary_stone := boundary_stone_value as MeshInstance3D
-			var boundary_mesh := boundary_stone.mesh as SphereMesh
+			var boundary_bounds := boundary_stone.mesh.get_aabb()
 			_check(
-				boundary_mesh != null and boundary_mesh.radius <= 0.11 and boundary_mesh.height <= 0.16,
+				boundary_stone.mesh is ArrayMesh
+				and boundary_bounds.size.x <= 0.221
+				and boundary_bounds.size.y <= 0.161
+				and boundary_bounds.size.z <= 0.221,
 				"Pile boundary stone is larger than the small marker size"
 			)
 		var occupied_cells: Dictionary = game.get("_occupied_static_world_units")

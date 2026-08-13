@@ -44,7 +44,10 @@ func _run() -> void:
 		var carried_food := citizen.find_child("CarriedFood", true, false) as Node3D
 		_check(is_instance_valid(carried_food) and carried_food.visible, "Citizen does not visibly carry berries")
 		var delivery_task := citizen.task.duplicate(true)
+		citizen.global_position = citizen.route_target()
 		game.call("_handle_deliver_food_arrival", citizen, delivery_task)
+		_check(pile.stored_calories == calories_before, "Calories reached the Pile before delivery labour")
+		game.call("_update_labour", GameplaySettings.STORAGE_DELIVERY_LABOUR_SECONDS)
 		_check(pile.stored_calories == calories_before + 1, "Delivered berries did not add one Calories")
 		_check(
 			not is_instance_valid(carried_food) or not carried_food.visible,

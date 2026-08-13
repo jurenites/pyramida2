@@ -41,7 +41,7 @@ func _run() -> void:
 		"Unfinished Construction Site did not rotate ninety degrees"
 	)
 
-	for _required_log in SupportConstructionSite.REQUIRED_LOGS:
+	for _required_log in int(construction_site.construction_recipe().get("log", 0)):
 		construction_site.deliver_log()
 	game.call("_update_building_hotkey_hint")
 	_check(not rotation_hint.visible, "Completed Building still displays the rotation option")

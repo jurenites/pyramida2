@@ -31,7 +31,12 @@ func _run() -> void:
 	items.append(loose_log)
 	_check(loose_log.take_for_carry(), "Test Log could not be carried")
 	citizen.set_carrying_log(true)
-	citizen.task = {"kind": "deliver_log", "log": loose_log, "pile_storage": pile}
+	citizen.task = {
+		"kind": "deliver_log",
+		"log": loose_log,
+		"pile_storage": pile,
+		"pickup_position": citizen.global_position - Vector3.RIGHT,
+	}
 
 	game.call("_handle_deliver_log_arrival", citizen, citizen.task.duplicate(true))
 	_check(pile.stored_logs == 16, "Full Pile accepted a seventeenth Log during delivery")

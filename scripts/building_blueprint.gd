@@ -20,6 +20,7 @@ var recipe_mode := "derived"
 var explicit_recipe: Dictionary = {}
 var workshop_recipes: Array[Dictionary] = []
 var last_error := ""
+var source_path := ""
 
 
 static func create_empty(
@@ -42,6 +43,7 @@ func duplicate_blueprint() -> BuildingBlueprint:
 	duplicate_value.recipe_mode = recipe_mode
 	duplicate_value.explicit_recipe = explicit_recipe.duplicate(true)
 	duplicate_value.workshop_recipes = workshop_recipes.duplicate(true)
+	duplicate_value.source_path = source_path
 	return duplicate_value
 
 
@@ -123,6 +125,7 @@ static func load_from_file(file_path: String) -> BuildingBlueprint:
 		return invalid_json
 	var loaded_blueprint := BuildingBlueprint.new()
 	loaded_blueprint.load_dictionary(json.data as Dictionary)
+	loaded_blueprint.source_path = file_path
 	return loaded_blueprint
 
 
@@ -284,6 +287,8 @@ static func _validate_dictionary(source: Dictionary) -> String:
 		var default_primitive := "log" if part_kind == "log" else "box"
 		if str(geometry.get("primitive", default_primitive)) not in SUPPORTED_PRIMITIVES:
 			return "Unsupported geometry primitive"
+		if not _geometry_numbers_are_finite(geometry):
+			return "Blueprint part geometry contains NaN or infinity"
 	if source_version >= 2:
 		var source_recipe_mode := str(source.get("recipe_mode", "derived"))
 		if source_recipe_mode not in ["derived", "explicit"]:
@@ -322,6 +327,23 @@ static func _canonical_part(source_part: Dictionary) -> Dictionary:
 		geometry["sides"] = int(geometry["sides"])
 	result["geometry"] = geometry
 	return result
+
+
+static func _geometry_numbers_are_finite(value: Variant) -> bool:
+	if value is float:
+		return is_finite(value)
+	if value is int:
+		return true
+	if value is Array:
+		for child_value in value:
+			if not _geometry_numbers_are_finite(child_value):
+				return false
+		return true
+	if value is Dictionary:
+		for child_value in value.values():
+			if not _geometry_numbers_are_finite(child_value):
+				return false
+	return true
 
 
 static func _canonical_resource_counts(value: Variant) -> Dictionary:

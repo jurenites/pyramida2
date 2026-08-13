@@ -21,8 +21,11 @@ func _initialize() -> void:
 		"Citizen selection circles must retain their two-pixel width"
 	)
 	_expect(
-		is_equal_approx(CitizenCommandOverlayScript.SELECTION_RADIUS_WORLD, 0.3168),
-		"Citizen selection circles must retain their approved radius"
+		is_equal_approx(
+			CitizenCommandOverlayScript.SELECTION_RADIUS_WORLD,
+			0.3168 * Citizen.CITIZEN_SCALE
+		),
+		"Citizen selection circle did not scale with the one-World-Unit body"
 	)
 	_expect(
 		(overlay.get_node("RouteTargetDot1") as Polygon2D).polygon.size() == 12,

@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_back, depth_draw_opaque, unshaded;
+render_mode cull_disabled, depth_draw_opaque, unshaded;
 
 uniform vec4 grass_color : source_color;
 uniform float wind_strength = 0.022;

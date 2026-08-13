@@ -1,7 +1,7 @@
 class_name AppliedLabour
 extends RefCounted
 
-const INTERRUPTED_VISIBILITY_SECONDS := 2.0
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
 
 var required_seconds: float
 var applied_seconds := 0.0
@@ -15,7 +15,7 @@ func _init(next_required_seconds: float) -> void:
 
 func resume(contributor_id: int) -> void:
 	_contributors[contributor_id] = true
-	_interrupted_visibility_remaining = INTERRUPTED_VISIBILITY_SECONDS
+	_interrupted_visibility_remaining = GameplaySettingsScript.INTERRUPTED_LABOUR_VISIBILITY_SECONDS
 
 
 func apply(contributor_id: int, delta: float) -> bool:
@@ -27,7 +27,7 @@ func apply(contributor_id: int, delta: float) -> bool:
 func interrupt(contributor_id: int) -> void:
 	_contributors.erase(contributor_id)
 	if _contributors.is_empty():
-		_interrupted_visibility_remaining = INTERRUPTED_VISIBILITY_SECONDS
+		_interrupted_visibility_remaining = GameplaySettingsScript.INTERRUPTED_LABOUR_VISIBILITY_SECONDS
 
 
 func update_interruption(delta: float) -> void:

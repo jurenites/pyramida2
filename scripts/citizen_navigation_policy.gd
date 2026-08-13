@@ -1,6 +1,8 @@
 class_name CitizenNavigationPolicy
 extends RefCounted
 
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
+
 ## Citizen movement and pointer interaction are separate concerns. WorldItem
 ## hitboxes remain selectable even when their World Unit is passable to a Citizen.
 const PASSABLE := "passable"
@@ -12,8 +14,8 @@ const HARD_BLOCK := "hard_block"
 const INTERACTION_COLLISION_LAYER := 1
 const CITIZEN_BLOCKER_COLLISION_LAYER := 2
 
-const CACTUS_TRAVEL_COST := 3.0
-const EMERGENCY_ESCAPE_DELAY_SECONDS := 2.0
+static var CACTUS_TRAVEL_COST := GameplaySettingsScript.CACTUS_TRAVEL_COST
+static var EMERGENCY_ESCAPE_DELAY_SECONDS := GameplaySettingsScript.EMERGENCY_ESCAPE_DELAY_SECONDS
 
 
 static func world_item_mode(item_kind: String) -> String:

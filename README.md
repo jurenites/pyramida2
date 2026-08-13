@@ -2,7 +2,7 @@
 
 A clean-room, peaceful vertical-settlement prototype built in Godot 4.7.1.
 
-It is not a finished game or a reuse of Sokpop's code or art. The current slice proves the core physical loop with original procedural primitives: citizens, renewable bushes, trees, desert resources, physical logs, carrying, and four-log support construction.
+It is not a finished game or a reuse of Sokpop's code or art. The current slice proves the core physical loop with original Blender-editable prop meshes, citizens, renewable bushes, trees, desert resources, physical logs, carrying, and four-log support construction.
 
 This README describes current runtime behaviour. When documentation and code disagree, code and passing tests are authoritative; future design belongs in explicitly deferred sections.
 
@@ -60,7 +60,7 @@ audio contract intentionally fails until original action sounds are attached.
 - The outlined dirt-pile-and-shovel icon beside Greenery enters Landscape Mode and fills with colour while active. Its bottom menu exposes `Remove soil block` and `Add soil block`. Remove deletes an existing player-added Soil Block or removes the clicked flat base cube as a one-World-Unit pit. Add restores a removed base cube, places one cube on ordinary exposed Sand, or attaches a cube to the exposed face of another Soil Block. Terrain changes are immediate sparse runtime deltas rather than Citizen jobs. Blocks may occupy heights `0` through `255`; fog, unloaded cells, occupied surface cells, and height `256` reject placement. Right-click, Escape, selecting Citizens, or switching modes closes Landscape Mode.
 - Clicking the Building icon enters persistent Building Mode and reveals the categorized two-row menu. Structure offers Support, Platform, and Sawmill; Storage offers the playable free Pile plus the future Warehouse. `Remove building` erases player Buildings and player-placed Piles directly.
 - Hold **Alt** while clicking to use the exact raycast object instead of citizen selection priority. During Support placement, a normal click places once and ends repeated placement; **Ctrl-click** places one and keeps Support placement active.
-- Press **F2** to enter the developer Building Constructor. Human-readable Version 2 `.pyrbuilding` files preserve logical Sub-Units, physical parts, recipes, and workshop processes. Official files generate Blender-compatible OBJ assets from the same source. See [BUILDING_BLUEPRINT_FORMAT.md](BUILDING_BLUEPRINT_FORMAT.md).
+- Press **F2** to enter the developer Building Constructor. Human-readable Version 2 `.pyrbuilding` files preserve logical Sub-Units, physical parts, recipes, and workshop processes. Every official Building has a neighboring `.obj` whose named parts provide runtime vertices. The local Blender extension round-trips `.pyrbuilding`; standard Wavefront import/export edits `.obj`. See [BUILDING_BLUEPRINT_FORMAT.md](BUILDING_BLUEPRINT_FORMAT.md).
 - On first launch, a translucent blank-keyboard lesson shows recognizable key proportions without printing or prescribing any key values. Any key dismisses it; **F1** reopens it later.
 - A muted gray build stamp beside the bottom-right compass displays the prototype version, current Git commit hash, and the application time of the latest chat batch in GMT+3. Each applied batch increments the final component of the `0.0.x` prototype version.
 
@@ -95,6 +95,9 @@ scripts/grass_renderer.gd        Chunked GPU-instanced grass billboards and wind
 scripts/world_streamer.gd        16×16 chunk addressing and deterministic surface generation
 scripts/citizen.gd               Citizen movement and carrying presentation
 scripts/world_item.gd            Trees, palms, cacti, bushes, stones, and physical logs
+scripts/obj_asset.gd             Cached named-part Wavefront OBJ runtime reader
+data/props/*.obj                 Three Blender-editable variants of current physical world props
+data/buildings/*.{pyrbuilding,obj} Paired Building semantics and named runtime geometry
 scripts/pile_storage.gd          Starting shared Log and Calories storage Building
 scripts/icon_number.gd           Shared Full Scale and Compact icon-plus-integer UI
 scripts/construction_inspector.gd Selected-site name, total labour, and material UI
@@ -104,6 +107,8 @@ scripts/ui_text_catalog.gd        Player-facing text lookup and length validatio
 scripts/world_unit.gd            8-Sub-Unit / face-Anchor Node data model
 scripts/building_blueprint*.gd   Versioned Building Constructor data, editor, and renderer
 scripts/building_blueprint_obj_exporter.gd Blender-compatible OBJ/MTL generation from logical assets
+tools/blender_pyrbuilding/       Blender extension for direct .pyrbuilding round trips
+tools/package_blender_extension.py Reproducible local extension ZIP packaging
 localization/ui_text.csv         English UI text, stable keys, and character limits
 tests/content_contract_test.gd   Headless English-text and action-audio contracts
 tests/applied_labour_test.gd     Resume, actor handoff, timing, and bar geometry contracts
@@ -118,7 +123,9 @@ tests/landscape_mode_test.gd    Landscape toolbar and sparse add/remove terrain 
 tests/building_catalog_test.gd  Path, Storage, Livable, and Structure definition contracts
 tests/road_navigation_weight_test.gd Weighted Road route and walking-speed contracts
 tests/tree_regrowth_test.gd     Three-day Stump and Tree growth cadence
+tests/obj_asset_runtime_test.gd OBJ part names, Support anchors, prop loading, and berry state
 tests/building_blueprint_test.gd Version 2 round trip, official assets, recipes, and OBJ export
+tests/test_pyrbuilding_codec.py Blender codec validation and coordinate round-trip contracts
 tests/building_asset_gameplay_test.gd Platform, Sawmill conversion, and free Pile contracts
 GAME_DESIGN_FOUNDATION.md        Editable design decisions
 GLOSSARY.md                      Canonical project terms and descriptions
@@ -137,7 +144,8 @@ Player-facing text belongs in `localization/ui_text.csv`, not in gameplay script
 - Bush surfaces use solid unshaded palette colours while continuing to cast shadows. Grass uses its solid unshaded palette colour but never casts a shadow.
 - Directional soft-shadow filtering is disabled. The terrain shader thresholds shadow coverage into one binary result: exact surface colour when lit or exact `FOG_AND_SHADOW` colour when shadowed. Overlapping shadow casters therefore cannot accumulate into darker layers.
 - Living and Dead Tree trunks and loose Logs use exactly two wood colours selected from face direction and explicitly cast geometric shadows. Loose horizontal Logs therefore retain a contact shadow on the terrain. Citizens do not cast long dynamic body shadows; each Citizen owns a small opaque circular contact disc that remains compact through morning and evening because it represents ground contact rather than sun direction.
-- Tree and physical-log variation is persistent world state: a future save must retain each permanent detail seed or resulting transform even though grass can be regenerated.
+- Tree and physical-log variation is persistent world state: `permanent_detail_seed` selects one of three neighboring OBJ variants and a future save must retain that seed even though grass can be regenerated.
+- Reusable physical props and Building meshes are Blender-editable OBJ assets. Collision, materials, resource state, wind sway, and construction logic remain code/data concerns. Dynamic terrain chunks, fog contours, grass MultiMeshes, selection outlines, progress bars, and UI remain engine-generated because their geometry is derived from changing simulation or screen state. Citizens require a later rigged `.glb` migration; flattening articulated animation into OBJ would discard joints and animation.
 - Snow terrain, pine forests, the full-log snow cabin, and Cloth production are design contracts only; those biome and crafting systems are not playable yet.
 - MSAA, screen-space AA, and TAA are disabled; a nearest-sampled 2×2 full-screen filter produces the deliberate retro-pixel 3D presentation.
 - Support, Platform, Sawmill, and Pile are placeable. Path, Warehouse, and Livable forms remain visible but disabled.

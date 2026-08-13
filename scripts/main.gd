@@ -18,6 +18,8 @@ const LabourProgressBarScript = preload("res://scripts/labour_progress_bar.gd")
 const PileStorageScript = preload("res://scripts/pile_storage.gd")
 const TerrainBlockScript = preload("res://scripts/terrain_block.gd")
 const BuildingCatalogScript = preload("res://scripts/building_catalog.gd")
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
+const ObjAssetScript = preload("res://scripts/obj_asset.gd")
 const CitizenCommandOverlayScript = preload("res://scripts/citizen_command_overlay.gd")
 const WorldStreamerScript = preload("res://scripts/world_streamer.gd")
 const WorldGenerationProfileScript = preload("res://scripts/world_generation_profile.gd")
@@ -30,6 +32,7 @@ const CompassWidgetScript = preload("res://scripts/compass_widget.gd")
 const TERRAIN_SHADER := preload("res://shaders/terrain.gdshader")
 const FOG_SHADER := preload("res://shaders/fog.gdshader")
 const PIXEL_FILTER_SHADER := preload("res://shaders/pixel_filter.gdshader")
+const WORLD_OBJECT_OUTLINE_SHADER := preload("res://shaders/world_object_outline.gdshader")
 const BACKGROUND_HALF_EXTENT := 128.0
 const FOG_CELL_SIZE := 0.5
 const REVEAL_RADIUS := 4.0
@@ -55,22 +58,14 @@ const HOVER_REFRESH_INTERVAL := 0.08
 const HOVER_DELAY_SECONDS := 0.25
 const HOVER_FADE_SPEED := 5.0
 const TOOLTIP_EDGE_THRESHOLD_PIXELS := 80.0
-const DAY_LENGTH_SECONDS := WorldItem.SIMULATION_DAY_SECONDS
 const SIMULATION_SPEED_OPTIONS := [1.0, 2.0, 4.0]
-const TREE_CUT_WORK_SECONDS := 3.0
-const EXCAVATION_WORK_SECONDS := 3.0
-const RESOURCE_WORK_SECONDS := 3.0
-const CONSTRUCTION_WORK_SECONDS := SupportConstructionSite.LOG_INSTALLATION_SECONDS
 const ONBOARDING_STATE_PATH := "user://onboarding.cfg"
 const WORLD_GENERATION_PROFILE_PATH := "user://world_generation_profile.json"
-const SUPPORT_FOOTPRINT_QUADRANT_OFFSETS: Array[Vector2] = [
-	Vector2(-0.25, -0.25),
-	Vector2(0.25, -0.25),
-	Vector2(0.25, 0.25),
-	Vector2(-0.25, 0.25),
-]
+const SUPPORT_CONSTRUCTION_SITE_ASSET_PATH := "res://data/buildings/support_construction_site.obj"
 
 var _camera: Camera3D
+var _support_footprint_quadrant_offsets: Array[Vector2] = []
+var _day_length_seconds := WorldItem.SIMULATION_DAY_SECONDS
 var _sun: DirectionalLight3D
 var _environment: Environment
 var _ground_material: ShaderMaterial
@@ -88,6 +83,13 @@ var _citizen_command_overlay
 var _selected_world_object: Node3D
 var _selection_outline_root: MultiMeshInstance3D
 var _selection_outline_mesh: BoxMesh
+var _selection_mesh_outline_target: Node3D
+var _selection_mesh_outlines: Array[MeshInstance3D] = []
+var _hover_mesh_outline_target: Node3D
+var _hover_mesh_outlines: Array[MeshInstance3D] = []
+var _hover_ground_outline_root: MultiMeshInstance3D
+var _hover_ground_outline_mesh: BoxMesh
+var _mesh_outline_material: ShaderMaterial
 var _selected_ground_cell := Vector2i.ZERO
 var _has_selected_ground_cell := false
 var _grass_renderer: Node3D
@@ -131,7 +133,6 @@ var _ui_resources: Label
 var _ui_mode: Label
 var _selection_box: Panel
 var _rts_count_badge: Label
-var _goods_count_badge: Label
 var _toolbar_tooltip: PanelContainer
 var _toolbar_tooltip_label: Label
 var _top_toolbar: HBoxContainer
@@ -197,6 +198,10 @@ var _citizens_are_sleeping := false
 
 
 func _ready() -> void:
+	_support_footprint_quadrant_offsets = ObjAssetScript.object_centres_xz(
+		SUPPORT_CONSTRUCTION_SITE_ASSET_PATH,
+		"placement_quadrant_"
+	)
 	_load_or_create_world_generation_profile()
 	_create_environment()
 	_create_ground()
@@ -235,8 +240,9 @@ func _process(delta: float) -> void:
 	_hover_refresh_remaining -= delta
 	if _hover_refresh_remaining <= 0.0:
 		_hover_refresh_remaining = HOVER_REFRESH_INTERVAL
-		_update_hover_tooltip()
+	_update_hover_target(delta)
 	_update_hover_transition(delta)
+	_update_mesh_outline_viewport()
 	_update_world_selection_outline()
 	_update_building_hotkey_hint()
 	_update_support_placement_preview()
@@ -298,7 +304,7 @@ func _handle_key_input(event: InputEventKey) -> void:
 			_rotate_selected_building(-1 if event.shift_pressed else 1)
 		KEY_F3:
 			_debug_hover_enabled = not _debug_hover_enabled
-			_update_hover_tooltip()
+			_update_hover_target(0.0)
 		KEY_B:
 			_toggle_build_menu()
 		KEY_ESCAPE:
@@ -872,7 +878,7 @@ func _select_citizens_in_screen_rect(selection_rect: Rect2) -> void:
 	for citizen in _citizens:
 		if not is_instance_valid(citizen):
 			continue
-		var selection_point := citizen.global_position + Vector3.UP * 0.8
+		var selection_point := citizen.selection_world_position()
 		if _camera.is_position_behind(selection_point):
 			continue
 		if selection_rect.has_point(_camera.unproject_position(selection_point)):
@@ -886,7 +892,7 @@ func _citizen_at_screen_point(screen_position: Vector2) -> Citizen:
 	for citizen in _citizens:
 		if not is_instance_valid(citizen):
 			continue
-		var selection_point := citizen.global_position + Vector3.UP * 0.8
+		var selection_point := citizen.selection_world_position()
 		if _camera.is_position_behind(selection_point):
 			continue
 		var screen_distance := screen_position.distance_to(_camera.unproject_position(selection_point))
@@ -998,6 +1004,8 @@ func _select_world_object(world_object: Node3D) -> void:
 	_has_selected_ground_cell = false
 	if not is_instance_valid(_selection_outline_root):
 		_create_world_selection_outline()
+	_clear_mesh_outlines(_selection_mesh_outlines)
+	_selection_mesh_outline_target = null
 	_update_world_selection_outline()
 
 
@@ -1007,6 +1015,8 @@ func _select_ground_tile(world_position: Vector3) -> void:
 	_has_selected_ground_cell = true
 	if not is_instance_valid(_selection_outline_root):
 		_create_world_selection_outline()
+	_clear_mesh_outlines(_selection_mesh_outlines)
+	_selection_mesh_outline_target = null
 	_update_world_selection_outline()
 
 
@@ -1015,6 +1025,8 @@ func _clear_object_selection() -> void:
 	_has_selected_ground_cell = false
 	if is_instance_valid(_selection_outline_root):
 		_selection_outline_root.visible = false
+	_clear_mesh_outlines(_selection_mesh_outlines)
+	_selection_mesh_outline_target = null
 
 
 func _try_delete_selected_object() -> void:
@@ -1182,42 +1194,50 @@ func _create_world_selection_outline() -> void:
 	_selection_outline_root.material_override = outline_material
 	_selection_outline_root.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_selection_outline_root)
+	_hover_ground_outline_mesh = BoxMesh.new()
+	_hover_ground_outline_mesh.size = Vector3(0.035, 0.035, 1.0)
+	var hover_multimesh := MultiMesh.new()
+	hover_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	hover_multimesh.mesh = _hover_ground_outline_mesh
+	_hover_ground_outline_root = MultiMeshInstance3D.new()
+	_hover_ground_outline_root.name = "HoveredGroundOutline"
+	_hover_ground_outline_root.multimesh = hover_multimesh
+	_hover_ground_outline_root.material_override = outline_material
+	_hover_ground_outline_root.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_hover_ground_outline_root.visible = false
+	add_child(_hover_ground_outline_root)
+	_mesh_outline_material = ShaderMaterial.new()
+	_mesh_outline_material.shader = WORLD_OBJECT_OUTLINE_SHADER
+	_mesh_outline_material.set_shader_parameter("outline_pixels", VisualTokens.OUTLINE_PIXELS)
+	_mesh_outline_material.set_shader_parameter("outline_color", Color.WHITE)
+	_update_mesh_outline_viewport()
 
 
 func _update_world_selection_outline() -> void:
 	if not is_instance_valid(_selection_outline_root):
 		return
 	if _has_selected_ground_cell:
+		_clear_mesh_outlines(_selection_mesh_outlines)
+		_selection_mesh_outline_target = null
 		_update_ground_selection_outline()
 		return
 	if not is_instance_valid(_selected_world_object) or not _selected_world_object.visible:
 		_selection_outline_root.visible = false
+		_clear_mesh_outlines(_selection_mesh_outlines)
+		_selection_mesh_outline_target = null
 		return
-	var selection_centre := _selected_world_object.global_position
-	var line_width := _selection_world_line_width(selection_centre)
-	var transforms: Array[Transform3D] = []
-	var occupied_boxes := _selection_outline_local_boxes(_selected_world_object)
-	if not occupied_boxes.is_empty():
-		for occupied_box in occupied_boxes:
-			transforms.append_array(_contained_box_edge_transforms(
-				occupied_box,
-				_selected_world_object.global_transform,
-				line_width,
-				true
-			))
-	else:
-		# Organic and loose objects retain the lighter upper/lower frame, but it
-		# now rotates rigidly with the object instead of using a changing world AABB.
-		var local_bounds := _local_visual_bounds(_selected_world_object)
-		selection_centre = _selected_world_object.global_transform * local_bounds.get_center()
-		line_width = _selection_world_line_width(selection_centre)
-		transforms.append_array(_contained_box_edge_transforms(
-			local_bounds,
-			_selected_world_object.global_transform,
-			line_width,
-			false
-		))
-	_apply_selection_outline_transforms(transforms, line_width)
+	_selection_outline_root.visible = false
+	if _selected_world_object is Citizen:
+		_clear_mesh_outlines(_selection_mesh_outlines)
+		_selection_mesh_outline_target = null
+		return
+	if (
+		_selection_mesh_outline_target != _selected_world_object
+		or not _mesh_outlines_are_valid(_selection_mesh_outlines)
+	):
+		_clear_mesh_outlines(_selection_mesh_outlines)
+		_selection_mesh_outline_target = _selected_world_object
+		_selection_mesh_outlines = _create_mesh_outlines(_selected_world_object, "Selected")
 
 
 func _update_ground_selection_outline() -> void:
@@ -1245,6 +1265,129 @@ func _update_ground_selection_outline() -> void:
 		cell_origin + Vector3(1.0 - inset, 0.0, 1.0)
 	))
 	_apply_selection_outline_transforms(transforms, line_width)
+
+
+func _set_hover_outline_target(
+	world_object: Variant,
+	hit_position: Vector3,
+	is_ground: bool
+) -> void:
+	if is_ground:
+		_clear_mesh_outlines(_hover_mesh_outlines)
+		_hover_mesh_outline_target = null
+		_update_ground_outline_at(_hover_ground_outline_root, _hover_ground_outline_mesh, hit_position)
+		return
+	if is_instance_valid(_hover_ground_outline_root):
+		_hover_ground_outline_root.visible = false
+	var next_target := world_object as Node3D if world_object is Node3D else null
+	if next_target == _selected_world_object:
+		next_target = null
+	if next_target == _hover_mesh_outline_target and _mesh_outlines_are_valid(_hover_mesh_outlines):
+		return
+	_clear_mesh_outlines(_hover_mesh_outlines)
+	_hover_mesh_outline_target = next_target
+	if is_instance_valid(next_target) and next_target.visible:
+		_hover_mesh_outlines = _create_mesh_outlines(next_target, "Hovered")
+
+
+func _clear_hover_outline() -> void:
+	_clear_mesh_outlines(_hover_mesh_outlines)
+	_hover_mesh_outline_target = null
+	if is_instance_valid(_hover_ground_outline_root):
+		_hover_ground_outline_root.visible = false
+
+
+func _create_mesh_outlines(world_object: Node3D, outline_prefix: String) -> Array[MeshInstance3D]:
+	var outlines: Array[MeshInstance3D] = []
+	for mesh_instance in _outline_source_meshes(world_object):
+		if (
+			mesh_instance == null
+			or mesh_instance.mesh == null
+			or not mesh_instance.is_visible_in_tree()
+			or bool(mesh_instance.get_meta("is_world_object_outline", false))
+		):
+			continue
+		var outline := MeshInstance3D.new()
+		outline.name = "%sOutline_%s" % [outline_prefix, mesh_instance.name]
+		outline.mesh = mesh_instance.mesh
+		outline.material_override = _mesh_outline_material
+		outline.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		outline.extra_cull_margin = 0.25
+		outline.set_meta("is_world_object_outline", true)
+		outline.set_meta("outline_source_id", mesh_instance.get_instance_id())
+		mesh_instance.add_child(outline)
+		outlines.append(outline)
+	return outlines
+
+
+func _outline_source_meshes(world_object: Node3D) -> Array[MeshInstance3D]:
+	if world_object.has_method("outline_source_meshes"):
+		var supplied_meshes: Variant = world_object.call("outline_source_meshes")
+		if supplied_meshes is Array:
+			var result: Array[MeshInstance3D] = []
+			for supplied_mesh in supplied_meshes:
+				if (
+					supplied_mesh is MeshInstance3D
+					and not bool((supplied_mesh as MeshInstance3D).get_meta("is_world_object_outline", false))
+				):
+					result.append(supplied_mesh)
+			return result
+	var result: Array[MeshInstance3D] = []
+	for mesh_value in world_object.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := mesh_value as MeshInstance3D
+		if not bool(mesh_instance.get_meta("is_world_object_outline", false)):
+			result.append(mesh_instance)
+	return result
+
+
+func _clear_mesh_outlines(outlines: Array[MeshInstance3D]) -> void:
+	for outline in outlines:
+		if is_instance_valid(outline):
+			outline.visible = false
+			outline.queue_free()
+	outlines.clear()
+
+
+func _mesh_outlines_are_valid(outlines: Array[MeshInstance3D]) -> bool:
+	if outlines.is_empty():
+		return false
+	for outline in outlines:
+		if not is_instance_valid(outline):
+			return false
+	return true
+
+
+func _update_mesh_outline_viewport() -> void:
+	if not is_instance_valid(_mesh_outline_material):
+		return
+	_mesh_outline_material.set_shader_parameter(
+		"viewport_size",
+		Vector2(get_viewport().get_visible_rect().size).max(Vector2.ONE)
+	)
+
+
+func _update_ground_outline_at(
+	outline_root: MultiMeshInstance3D,
+	outline_mesh: BoxMesh,
+	world_position: Vector3
+) -> void:
+	if not is_instance_valid(outline_root) or outline_mesh == null:
+		return
+	var ground_cell := _world_unit_cell(world_position)
+	var cell_origin := Vector3(float(ground_cell.x), 0.065, float(ground_cell.y))
+	var line_width := _selection_world_line_width(cell_origin + Vector3(0.5, 0.0, 0.5))
+	var inset := line_width * 0.5
+	var transforms: Array[Transform3D] = [
+		_box_segment_transform(cell_origin + Vector3(0.0, 0.0, inset), cell_origin + Vector3(1.0, 0.0, inset)),
+		_box_segment_transform(cell_origin + Vector3(0.0, 0.0, 1.0 - inset), cell_origin + Vector3(1.0, 0.0, 1.0 - inset)),
+		_box_segment_transform(cell_origin + Vector3(inset, 0.0, 0.0), cell_origin + Vector3(inset, 0.0, 1.0)),
+		_box_segment_transform(cell_origin + Vector3(1.0 - inset, 0.0, 0.0), cell_origin + Vector3(1.0 - inset, 0.0, 1.0)),
+	]
+	outline_mesh.size = Vector3(line_width, line_width, 1.0)
+	outline_root.multimesh.instance_count = transforms.size()
+	for transform_index in transforms.size():
+		outline_root.multimesh.set_instance_transform(transform_index, transforms[transform_index])
+	outline_root.visible = true
 
 
 func _apply_selection_outline_transforms(
@@ -1849,14 +1992,13 @@ func _ensure_support_placement_preview() -> void:
 		geometry.material_override = _support_preview_allowed_material
 		geometry.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_support_preview_geometry.append(geometry)
-	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
+	var site_objects := ObjAssetScript.load_objects(SUPPORT_CONSTRUCTION_SITE_ASSET_PATH)
+	for quadrant_index in _support_footprint_quadrant_offsets.size():
 		var quadrant := MeshInstance3D.new()
 		quadrant.name = "PlacementQuadrant%d" % (quadrant_index + 1)
-		var quadrant_mesh := BoxMesh.new()
-		quadrant_mesh.size = Vector3(0.48, 0.025, 0.48)
-		quadrant.mesh = quadrant_mesh
-		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
-		quadrant.position = Vector3(quadrant_offset.x, 0.04, quadrant_offset.y)
+		quadrant.mesh = site_objects.get(
+			"placement_quadrant_%02d" % (quadrant_index + 1)
+		) as Mesh
 		quadrant.material_override = _support_preview_allowed_material
 		quadrant.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_support_placement_preview.add_child(quadrant)
@@ -1918,8 +2060,8 @@ func _building_placement_evaluation(preview_position: Vector3, building_id: Stri
 
 func _support_placement_evaluation(preview_position: Vector3) -> Dictionary:
 	var invalid_quadrants: Array[bool] = [false, false, false, false]
-	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
-		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+	for quadrant_index in _support_footprint_quadrant_offsets.size():
+		var quadrant_offset := _support_footprint_quadrant_offsets[quadrant_index]
 		var quadrant_centre := preview_position + Vector3(quadrant_offset.x, 0.0, quadrant_offset.y)
 		if not _is_inside_playable_world(quadrant_centre):
 			invalid_quadrants[quadrant_index] = true
@@ -1986,8 +2128,8 @@ func _mark_support_blocked_by_cell(
 	blocked_cell: Vector2i,
 	invalid_quadrants: Array[bool]
 ) -> void:
-	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
-		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+	for quadrant_index in _support_footprint_quadrant_offsets.size():
+		var quadrant_offset := _support_footprint_quadrant_offsets[quadrant_index]
 		var quadrant_centre := preview_position + Vector3(quadrant_offset.x, 0.0, quadrant_offset.y)
 		if _world_unit_cell(quadrant_centre) == blocked_cell:
 			invalid_quadrants[quadrant_index] = true
@@ -2002,8 +2144,8 @@ func _mark_support_blocked_by_footprint(
 		Vector2(blocker_position.x - 0.5, blocker_position.z - 0.5),
 		Vector2.ONE
 	)
-	for quadrant_index in SUPPORT_FOOTPRINT_QUADRANT_OFFSETS.size():
-		var quadrant_offset := SUPPORT_FOOTPRINT_QUADRANT_OFFSETS[quadrant_index]
+	for quadrant_index in _support_footprint_quadrant_offsets.size():
+		var quadrant_offset := _support_footprint_quadrant_offsets[quadrant_index]
 		var quadrant_rect := Rect2(
 			Vector2(
 				preview_position.x + quadrant_offset.x - 0.24,
@@ -2286,16 +2428,16 @@ func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 		var pile := source_pile as PileStorage
 		var pile_construction_site: Variant = task.get("construction_site")
 		var resource_kind := str(task.get("resource_kind", "log"))
-		var contributor_id := citizen.get_instance_id()
-		var reservation_slot := -1
+		var pile_contributor_id := citizen.get_instance_id()
+		var pile_reservation_slot := -1
 		if is_instance_valid(pile_construction_site):
-			reservation_slot = (pile_construction_site as SupportConstructionSite).reserve_resource(
-				contributor_id,
+			pile_reservation_slot = (pile_construction_site as SupportConstructionSite).reserve_resource(
+				pile_contributor_id,
 				resource_kind
 			)
-		if reservation_slot < 0 or not pile.take_resource(resource_kind, 1):
+		if pile_reservation_slot < 0 or not pile.take_resource(resource_kind, 1):
 			if is_instance_valid(pile_construction_site):
-				(pile_construction_site as SupportConstructionSite).release_log_reservation(contributor_id)
+				(pile_construction_site as SupportConstructionSite).release_log_reservation(pile_contributor_id)
 			citizen.clear_work_assignment()
 			citizen.finish_task(UIText.CITIZEN_SUPPORT_NEEDS_LOG_STATUS_TEXT)
 			return
@@ -2306,7 +2448,7 @@ func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 			"construction_site": pile_construction_site,
 			"stored_log": true,
 			"resource_kind": resource_kind,
-			"reservation_slot": reservation_slot,
+			"reservation_slot": pile_reservation_slot,
 		}, true)
 		return
 	var source_log: Variant = task.get("log")
@@ -2314,13 +2456,21 @@ func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 	var pile_storage: Variant = task.get("pile_storage")
 	if is_instance_valid(source_log) and is_instance_valid(pile_storage) and source_log.take_for_carry():
 		citizen.set_carrying_log(true)
-		var destination_pile := pile_storage as PileStorage
-		_assign_navigation_task(citizen, destination_pile.nearest_delivery_world_position(citizen.global_position), {
+		var pickup_position := citizen.global_position
+		var delivery_plan := _nearest_reachable_pile_delivery(pickup_position, "log")
+		var destination_pile := delivery_plan.get("pile") as PileStorage
+		if not is_instance_valid(destination_pile):
+			citizen.set_carrying_log(false)
+			(source_log as WorldItem).release_from_carry(citizen.global_position)
+			citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+			return
+		_assign_navigation_task(citizen, delivery_plan.get("target", pickup_position), {
 			"kind": ActionCatalog.DELIVER_LOG,
 			"status_text_key": UIText.CITIZEN_CARRYING_LOG_STATUS_TEXT,
 			"log": source_log,
-			"pile_storage": pile_storage,
-		}, true)
+			"pile_storage": destination_pile,
+			"pickup_position": pickup_position,
+		}, false)
 		return
 	var contributor_id := citizen.get_instance_id()
 	var reservation_slot := -1
@@ -2346,25 +2496,10 @@ func _handle_fetch_log_arrival(citizen: Citizen, task: Dictionary) -> void:
 
 
 func _handle_deliver_log_arrival(citizen: Citizen, task: Dictionary) -> void:
-	var carried_log: Variant = task.get("log")
 	var construction_site: Variant = task.get("construction_site")
 	var pile_storage: Variant = task.get("pile_storage")
 	if is_instance_valid(pile_storage):
-		var pile := pile_storage as PileStorage
-		if not pile.store_log():
-			# A full Pile never consumes a seventeenth physical Log. Put it back
-			# beside the Citizen and stop the repeating collection assignment.
-			citizen.set_carrying_log(false)
-			if is_instance_valid(carried_log):
-				(carried_log as WorldItem).release_from_carry(citizen.global_position)
-			citizen.clear_work_assignment()
-			citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
-			return
-		citizen.set_carrying_log(false)
-		if is_instance_valid(carried_log):
-			_items.erase(carried_log)
-			carried_log.queue_free()
-		_continue_persistent_assignment(citizen)
+		_start_storage_delivery_labour(citizen, task)
 		return
 	if not is_instance_valid(construction_site):
 		_return_unapplied_building_block(citizen, task)
@@ -2400,7 +2535,7 @@ func _start_construction_work(
 		UIText.CITIZEN_BUILDING_STATUS_TEXT,
 		float(construction_site.labour_seconds_by_resource().get(
 			resource_kind,
-			CONSTRUCTION_WORK_SECONDS
+			GameplaySettingsScript.CONSTRUCTION_BLOCK_LABOUR_SECONDS
 		)),
 		reservation_slot
 	)
@@ -2422,15 +2557,110 @@ func _resume_construction_work(citizen: Citizen, task: Dictionary) -> void:
 
 
 func _handle_deliver_food_arrival(citizen: Citizen, task: Dictionary) -> void:
-	var pile_storage: Variant = task.get("pile_storage")
-	var amount := int(task.get("amount", 0))
-	citizen.set_carrying_food(false)
-	if is_instance_valid(pile_storage) and (pile_storage as PileStorage).can_store_resource("calories"):
-		(pile_storage as PileStorage).store_calories(amount)
-		_calories = (pile_storage as PileStorage).stored_calories
-		_continue_persistent_assignment(citizen)
+	if is_instance_valid(task.get("pile_storage")):
+		_start_storage_delivery_labour(citizen, task)
 		return
+	_reroute_or_release_storage_delivery(citizen, task)
+
+
+func _all_piles() -> Array[PileStorage]:
+	var piles: Array[PileStorage] = []
+	if is_instance_valid(_starting_pile):
+		piles.append(_starting_pile)
+	for placed_pile in _placed_piles:
+		if is_instance_valid(placed_pile):
+			piles.append(placed_pile)
+	return piles
+
+
+func _nearest_reachable_pile_delivery(
+	from_position: Vector3,
+	resource_kind: String,
+	excluded_pile: PileStorage = null
+) -> Dictionary:
+	var nearest_plan: Dictionary = {}
+	var nearest_route_length := INF
+	for pile in _all_piles():
+		if pile == excluded_pile or not pile.visible or not pile.can_store_resource(resource_kind):
+			continue
+		for target_position in pile.delivery_approach_world_positions():
+			if from_position.distance_to(target_position) + 0.0001 < GameplaySettingsScript.MINIMUM_DELIVERY_TRAVEL_DISTANCE:
+				continue
+			var route := _build_navigation_route(from_position, target_position, false)
+			if route.is_empty():
+				continue
+			var route_length := 0.0
+			var previous_position := from_position
+			for route_position in route:
+				route_length += previous_position.distance_to(route_position)
+				previous_position = route_position
+			if route_length < nearest_route_length:
+				nearest_plan = {"pile": pile, "target": target_position}
+				nearest_route_length = route_length
+	return nearest_plan
+
+
+func _start_storage_delivery_labour(citizen: Citizen, delivery_task: Dictionary) -> void:
+	var pile := delivery_task.get("pile_storage") as PileStorage
+	if not is_instance_valid(pile):
+		_reroute_or_release_storage_delivery(citizen, delivery_task)
+		return
+	var resource_kind := "log" if str(delivery_task.get("kind", "")) == ActionCatalog.DELIVER_LOG else "calories"
+	if not pile.can_store_resource(resource_kind):
+		_reroute_or_release_storage_delivery(citizen, delivery_task, pile)
+		return
+	var pickup_position: Vector3 = delivery_task.get("pickup_position", citizen.global_position)
+	if citizen.global_position.distance_to(pickup_position) + 0.0001 < GameplaySettingsScript.MINIMUM_DELIVERY_TRAVEL_DISTANCE:
+		_reroute_or_release_storage_delivery(citizen, delivery_task)
+		return
+	citizen.task = delivery_task.duplicate(true)
+	_begin_labour(
+		citizen,
+		pile,
+		str(delivery_task.get("kind", "")),
+		str(delivery_task.get("status_text_key", UIText.CITIZEN_IDLE_STATUS_TEXT)),
+		GameplaySettingsScript.STORAGE_DELIVERY_LABOUR_SECONDS,
+		citizen.get_instance_id(),
+		true
+	)
+
+
+func _reroute_or_release_storage_delivery(
+	citizen: Citizen,
+	delivery_task: Dictionary,
+	excluded_pile: PileStorage = null
+) -> void:
+	var resource_kind := "log" if str(delivery_task.get("kind", "")) == ActionCatalog.DELIVER_LOG else "calories"
+	var pickup_position: Vector3 = delivery_task.get("pickup_position", citizen.global_position)
+	var delivery_plan := _nearest_reachable_pile_delivery(pickup_position, resource_kind, excluded_pile)
+	var alternate_pile := delivery_plan.get("pile") as PileStorage
+	if is_instance_valid(alternate_pile):
+		var rerouted_task := delivery_task.duplicate(true)
+		rerouted_task["pile_storage"] = alternate_pile
+		rerouted_task["pickup_position"] = pickup_position
+		_assign_navigation_task(
+			citizen,
+			delivery_plan.get("target", citizen.global_position),
+			rerouted_task,
+			false
+		)
+		return
+	if resource_kind == "log":
+		citizen.set_carrying_log(false)
+		var carried_log := delivery_task.get("log") as WorldItem
+		if is_instance_valid(carried_log):
+			carried_log.release_from_carry(citizen.global_position)
+	else:
+		citizen.set_carrying_food(false)
+	citizen.clear_work_assignment()
 	citizen.finish_task(UIText.CITIZEN_IDLE_STATUS_TEXT)
+
+
+func _total_stored_resource(resource_kind: String) -> int:
+	var total := 0
+	for pile in _all_piles():
+		total += pile.resource_count(resource_kind)
+	return total
 
 
 func _handle_fetch_workshop_input_arrival(citizen: Citizen, task: Dictionary) -> void:
@@ -2466,7 +2696,7 @@ func _handle_sawmill_arrival(citizen: Citizen, task: Dictionary) -> void:
 		sawmill,
 		ActionCatalog.SAW_PLANK,
 		UIText.CITIZEN_SAWING_PLANK_STATUS_TEXT,
-		3.0,
+		GameplaySettingsScript.SAWMILL_PLANK_LABOUR_SECONDS,
 		citizen.get_instance_id()
 	)
 	var active_work: Dictionary = _active_work.get(citizen, {})
@@ -2485,7 +2715,7 @@ func _start_tree_cut_work(citizen: Citizen, tree: WorldItem) -> void:
 		tree,
 		ActionCatalog.CHOP_TREE,
 		UIText.CITIZEN_CUTTING_TREE_STATUS_TEXT,
-		TREE_CUT_WORK_SECONDS,
+		GameplaySettingsScript.TREE_CUT_LABOUR_SECONDS,
 		int(citizen.task.get("tree_work_slot", 0))
 	)
 	citizen.set_chopping(true, tree.global_position)
@@ -2497,7 +2727,7 @@ func _start_excavation_work(citizen: Citizen, excavation_site: ExcavationSite) -
 		excavation_site,
 		ActionCatalog.EXCAVATE,
 		UIText.CITIZEN_DIGGING_STATUS_TEXT,
-		EXCAVATION_WORK_SECONDS
+		GameplaySettingsScript.EXCAVATION_LABOUR_SECONDS
 	)
 
 
@@ -2507,7 +2737,13 @@ func _start_resource_work(
 	work_kind: String,
 	status_text_key: String
 ) -> void:
-	_begin_labour(citizen, target, work_kind, status_text_key, RESOURCE_WORK_SECONDS)
+	_begin_labour(
+		citizen,
+		target,
+		work_kind,
+		status_text_key,
+		GameplaySettingsScript.RESOURCE_GATHER_LABOUR_SECONDS
+	)
 
 
 func _begin_labour(
@@ -2516,17 +2752,18 @@ func _begin_labour(
 	work_kind: String,
 	status_text_key: String,
 	required_seconds: float,
-	work_slot := -1
+	work_slot := -1,
+	hide_progress_bar := false
 ) -> void:
 	_cancel_active_work(citizen)
 	var labour_key := _labour_key(target, work_kind, work_slot)
-	var record := _labour_record_for(target, work_kind, required_seconds, work_slot)
+	var record := _labour_record_for(target, work_kind, required_seconds, work_slot, hide_progress_bar)
 	var labour := record.get("labour") as AppliedLabour
 	var contributor_id := citizen.get_instance_id()
 	labour.resume(contributor_id)
 	var progress_bar := record.get("bar") as LabourProgressBar
 	if is_instance_valid(progress_bar):
-		progress_bar.visible = not _is_selected_construction_total_progress_target(
+		progress_bar.visible = not hide_progress_bar and not _is_selected_construction_total_progress_target(
 			target,
 			work_kind
 		)
@@ -2546,6 +2783,8 @@ func _labour_key(target: Node3D, work_kind: String, work_slot := -1) -> String:
 		ActionCatalog.CHOP_TREE,
 		ActionCatalog.APPLY_BUILDING_BLOCK,
 		ActionCatalog.SAW_PLANK,
+		ActionCatalog.DELIVER_LOG,
+		ActionCatalog.DELIVER_FOOD,
 	]:
 		return "%d:%s:%d" % [target.get_instance_id(), work_kind, work_slot]
 	return "%d:%s" % [target.get_instance_id(), work_kind]
@@ -2555,7 +2794,8 @@ func _labour_record_for(
 	target: Node3D,
 	work_kind: String,
 	required_seconds: float,
-	work_slot := -1
+	work_slot := -1,
+	hide_progress_bar := false
 ) -> Dictionary:
 	var labour_key := _labour_key(target, work_kind, work_slot)
 	if _labour_records.has(labour_key):
@@ -2566,6 +2806,7 @@ func _labour_record_for(
 		"labour": AppliedLabourScript.new(required_seconds),
 		"bar": _create_labour_progress_bar(required_seconds),
 		"work_slot": work_slot,
+		"hide_progress_bar": hide_progress_bar,
 	}
 	_labour_records[labour_key] = record
 	return record
@@ -2635,7 +2876,8 @@ func _update_labour_records(delta: float) -> void:
 		progress_bar.set_sun_screen_side(_sun_screen_side())
 		var world_anchor := target.global_position + Vector3.UP * 0.18
 		progress_bar.visible = (
-			labour.should_be_visible()
+			not bool(record.get("hide_progress_bar", false))
+			and labour.should_be_visible()
 			and not _camera.is_position_behind(world_anchor)
 			and not _is_selected_construction_total_progress_target(
 				target,
@@ -2677,6 +2919,8 @@ func _complete_labour_job(labour_key: String, completing_citizen: Citizen) -> vo
 				citizen.finish_task()
 	_remove_labour_record(labour_key)
 	match work_kind:
+		ActionCatalog.DELIVER_LOG, ActionCatalog.DELIVER_FOOD:
+			_complete_storage_delivery_work(completing_citizen)
 		ActionCatalog.APPLY_BUILDING_BLOCK:
 			_complete_construction_work(completing_citizen, target as SupportConstructionSite)
 		ActionCatalog.EXCAVATE:
@@ -2689,6 +2933,28 @@ func _complete_labour_job(labour_key: String, completing_citizen: Citizen) -> vo
 			_complete_sawmill_work(completing_citizen, target as SupportConstructionSite)
 		_:
 			_complete_tree_cut_work(completing_citizen, target as WorldItem)
+
+
+func _complete_storage_delivery_work(citizen: Citizen) -> void:
+	if not is_instance_valid(citizen):
+		return
+	var delivery_task := citizen.task.duplicate(true)
+	var pile := delivery_task.get("pile_storage") as PileStorage
+	var resource_kind := "log" if str(delivery_task.get("kind", "")) == ActionCatalog.DELIVER_LOG else "calories"
+	var amount := 1 if resource_kind == "log" else int(delivery_task.get("amount", 0))
+	if not is_instance_valid(pile) or not pile.store_resource(resource_kind, amount):
+		_reroute_or_release_storage_delivery(citizen, delivery_task, pile)
+		return
+	if resource_kind == "log":
+		citizen.set_carrying_log(false)
+		var carried_log := delivery_task.get("log") as WorldItem
+		if is_instance_valid(carried_log):
+			_items.erase(carried_log)
+			carried_log.queue_free()
+	else:
+		citizen.set_carrying_food(false)
+		_calories = _total_stored_resource("calories")
+	_continue_persistent_assignment(citizen)
 
 
 func _complete_construction_work(
@@ -2760,14 +3026,18 @@ func _complete_bush_harvest_work(citizen: Citizen, bush: WorldItem) -> void:
 		return
 	_mark_streamed_entity_dirty(bush)
 	if bush.harvest():
-		if is_instance_valid(_starting_pile):
+		var pickup_position := citizen.global_position
+		var delivery_plan := _nearest_reachable_pile_delivery(pickup_position, "calories")
+		var destination_pile := delivery_plan.get("pile") as PileStorage
+		if is_instance_valid(destination_pile):
 			citizen.set_carrying_food(true)
-			_assign_navigation_task(citizen, _starting_pile.nearest_delivery_world_position(citizen.global_position), {
+			_assign_navigation_task(citizen, delivery_plan.get("target", pickup_position), {
 				"kind": ActionCatalog.DELIVER_FOOD,
 				"status_text_key": UIText.CITIZEN_CARRYING_FOOD_STATUS_TEXT,
-				"pile_storage": _starting_pile,
+				"pile_storage": destination_pile,
 				"amount": 1,
-			}, true)
+				"pickup_position": pickup_position,
+			}, false)
 		else:
 			citizen.finish_task(UIText.CITIZEN_HARVESTED_CALORIE_STATUS_TEXT)
 	else:
@@ -2836,12 +3106,14 @@ func _complete_tree_cut_work(citizen: Citizen, tree: WorldItem) -> void:
 		cut_result.get("drop_position", tree_position),
 		int(cut_result.get("log_detail_seed", 1))
 	)
-	if is_instance_valid(dropped_log) and is_instance_valid(_starting_pile):
+	var destination_plan := _nearest_reachable_pile_delivery(citizen.global_position, "log")
+	var destination_pile := destination_plan.get("pile") as PileStorage
+	if is_instance_valid(dropped_log) and is_instance_valid(destination_pile):
 		_assign_navigation_task(citizen, dropped_log.global_position, {
 			"kind": ActionCatalog.FETCH_LOG,
 			"status_text_key": UIText.CITIZEN_FETCHING_LOG_STATUS_TEXT,
 			"log": dropped_log,
-			"pile_storage": _starting_pile,
+			"pile_storage": destination_pile,
 		}, false)
 	else:
 		citizen.finish_task(UIText.CITIZEN_CUT_LOG_STATUS_TEXT)
@@ -2940,6 +3212,8 @@ func _cancel_active_work(citizen: Citizen, preserve_carried_material := false) -
 	elif str(work.get("kind", "")) == ActionCatalog.SAW_PLANK and not preserve_carried_material:
 		_return_sawmill_input(citizen, work)
 		_remove_labour_record(labour_key)
+	elif str(work.get("kind", "")) in [ActionCatalog.DELIVER_LOG, ActionCatalog.DELIVER_FOOD]:
+		_remove_labour_record(labour_key)
 	_active_work.erase(citizen)
 	if is_instance_valid(citizen):
 		citizen.set_chopping(false)
@@ -2991,11 +3265,12 @@ func _world_object_for(node: Node) -> Variant:
 	return null
 
 
-func _update_hover_tooltip() -> void:
+func _update_hover_target(delta: float) -> void:
 	if not is_instance_valid(_hover_tooltip) or not is_instance_valid(_camera):
 		return
 	var hovered_control: Control = get_viewport().gui_get_hovered_control()
 	if hovered_control != null and hovered_control != _hover_tooltip:
+		_clear_hover_outline()
 		_reset_hover_candidate()
 		return
 	var mouse_position: Vector2 = get_viewport().get_mouse_position()
@@ -3005,15 +3280,20 @@ func _update_hover_tooltip() -> void:
 		return
 	var hit: Dictionary = _raycast(mouse_position)
 	if hit.is_empty():
+		_clear_hover_outline()
 		_reset_hover_candidate()
 		return
 	var collider: Node = hit.get("collider") as Node
 	var world_object: Variant = _world_object_for(collider)
 	if not _hover_target_is_revealed(hit, world_object):
+		_clear_hover_outline()
 		_hide_hover_tooltip_behind_fog()
 		return
+	var is_ground: bool = collider != null and str(collider.get_meta("world_kind", "")) == "ground"
+	_set_hover_outline_target(world_object, hit.get("position", Vector3.ZERO), is_ground)
 	var display_name: String = _hover_display_name(world_object, collider)
 	if display_name.is_empty():
+		_clear_hover_outline()
 		_reset_hover_candidate()
 		return
 	var candidate_key := "%d:%s" % [collider.get_instance_id(), display_name]
@@ -3022,7 +3302,7 @@ func _update_hover_tooltip() -> void:
 		_hover_stable_elapsed = 0.0
 		_hover_target_visible = false
 		return
-	_hover_stable_elapsed += HOVER_REFRESH_INTERVAL
+	_hover_stable_elapsed += delta
 	if _hover_stable_elapsed < HOVER_DELAY_SECONDS:
 		_hover_target_visible = false
 		return
@@ -3165,7 +3445,7 @@ func _hover_debug_text(world_object: Variant, collider: Node, hit: Dictionary) -
 		var support := world_object as SupportConstructionSite
 		return UIText.text(UIText.SUPPORT_DEBUG_HOVER_TEXT, [
 			support.delivered_logs,
-			SupportConstructionSite.REQUIRED_LOGS,
+			int(support.construction_recipe().get("log", 0)),
 			support.global_position.x,
 			support.global_position.z,
 		])
@@ -3940,6 +4220,10 @@ func _create_environment() -> void:
 	_sun.rotation_degrees = Vector3(-52.0, -35.0, 0.0)
 	_sun.light_energy = 1.15
 	_sun.shadow_enabled = true
+	# Keep flat sand and Building surfaces from self-shadowing at the steep
+	# midday sun angle. This is deliberately only slightly above Godot's 0.1
+	# default so contact shadows do not visibly detach from their casters.
+	_sun.shadow_bias = 0.14
 	_sun.shadow_opacity = 1.0
 	_sun.shadow_blur = 0.0
 	# Clouds use their own overlay and do not cast directional shadows. Limiting
@@ -3951,7 +4235,7 @@ func _create_environment() -> void:
 
 
 func _update_day_night() -> void:
-	var day_phase := fmod(_elapsed, DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS
+	var day_phase := fmod(_elapsed, _day_length_seconds) / _day_length_seconds
 	var sun_height := sin(day_phase * TAU)
 	_set_citizens_sleeping(day_phase >= 0.5)
 	var daylight := smoothstep(-0.2, 0.2, sun_height)
@@ -3969,6 +4253,9 @@ func _update_day_night() -> void:
 		Palette.EVENING_SHADOW,
 		Palette.NIGHT_FOG_AND_SHADOW
 	)
+	for citizen in _citizens:
+		if is_instance_valid(citizen):
+			citizen.set_contact_shadow_colour(shadow_colour)
 	var light_colour := _day_cycle_colour(
 		day_phase,
 		Palette.MORNING_LIGHT,
@@ -4117,13 +4404,6 @@ func _create_interface() -> void:
 	_rts_count_badge.custom_minimum_size = Vector2(18.0, 18.0)
 	_rts_count_badge.clip_text = true
 	_rts_count_badge.add_theme_font_size_override("font_size", VisualTokens.SELECTION_COUNT_FONT_SIZE)
-	_goods_count_badge = _create_count_badge(
-		selection_layer,
-		Vector2(62.0, 20.0),
-		Vector2(48.0, 32.0),
-		6,
-		Palette.WOODEN_ROOF
-	)
 	_day_label = Label.new()
 	_day_label.name = "DayCount"
 	_day_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -5095,28 +5375,28 @@ func _create_hover_tooltip() -> void:
 
 
 func _create_custom_cursor() -> void:
-	var cursor_image := Image.create(48, 48, false, Image.FORMAT_RGBA8)
+	var cursor_image := Image.create(12, 12, false, Image.FORMAT_RGBA8)
 	cursor_image.fill(Color.TRANSPARENT)
 	# The cursor keeps a hard-pixel black-and-white treatment, but its core
 	# polygons are expanded by a circular radius so the tip, tail, and joints
 	# feel friendly instead of knife-sharp. No fractional alpha is introduced.
 	var outer_core := PackedVector2Array([
-		Vector2(5, 4), Vector2(5, 34), Vector2(12, 28), Vector2(21, 44),
-		Vector2(26, 41), Vector2(18, 26), Vector2(32, 26),
+		Vector2(1.25, 1), Vector2(1.25, 8.5), Vector2(3, 7), Vector2(5.25, 11),
+		Vector2(6.5, 10.25), Vector2(4.5, 6.5), Vector2(8, 6.5),
 	])
 	var inner_core := PackedVector2Array([
-		Vector2(8, 9), Vector2(8, 29), Vector2(13, 25), Vector2(21, 39),
-		Vector2(22, 38), Vector2(15, 24), Vector2(27, 24),
+		Vector2(2, 2.25), Vector2(2, 7.25), Vector2(3.25, 6.25), Vector2(5.25, 9.75),
+		Vector2(5.5, 9.5), Vector2(3.75, 6), Vector2(6.75, 6),
 	])
-	for pixel_x in 48:
-		for pixel_y in 48:
+	for pixel_x in 12:
+		for pixel_y in 12:
 			var pixel_centre := Vector2(float(pixel_x) + 0.5, float(pixel_y) + 0.5)
-			if _is_point_in_rounded_polygon(pixel_centre, outer_core, 2.75):
+			if _is_point_in_rounded_polygon(pixel_centre, outer_core, 0.6875):
 				cursor_image.set_pixel(pixel_x, pixel_y, Color.WHITE)
-			if _is_point_in_rounded_polygon(pixel_centre, inner_core, 1.5):
+			if _is_point_in_rounded_polygon(pixel_centre, inner_core, 0.375):
 				cursor_image.set_pixel(pixel_x, pixel_y, Color.BLACK)
 	_cursor_texture = ImageTexture.create_from_image(cursor_image)
-	Input.set_custom_mouse_cursor(_cursor_texture, Input.CURSOR_ARROW, Vector2(5.0, 4.0))
+	Input.set_custom_mouse_cursor(_cursor_texture, Input.CURSOR_ARROW, Vector2(1.25, 1.0))
 
 
 func _is_point_in_rounded_polygon(
@@ -5305,15 +5585,13 @@ func _update_interface() -> void:
 	_rts_count_badge.visible = not _build_mode and _selected_citizens.size() > 1
 	_rts_count_badge.text = str(_selected_citizens.size())
 	_update_rts_count_badge_geometry()
-	_goods_count_badge.visible = _build_mode
-	_goods_count_badge.text = str(_count_available_logs())
 	if is_instance_valid(_population_icon_number):
 		_population_icon_number.set_number(_population_count())
 	_update_selected_pile_inventory()
 	_update_toolbar_mode_state()
 	_day_label.text = UIText.text(
 		UIText.DAY_COUNT_TEXT,
-		[int(floor(_elapsed / DAY_LENGTH_SECONDS)) + 1]
+		[int(floor(_elapsed / _day_length_seconds)) + 1]
 	)
 	var selected_text := UIText.text(UIText.NO_CITIZEN_SELECTED_TEXT)
 	if _selected_citizens.size() > 1:

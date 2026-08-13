@@ -23,7 +23,7 @@ func _run() -> void:
 	var building := SupportConstructionSite.new()
 	game.add_child(building)
 	building.global_position = Vector3(4.5, 0.0, 4.5)
-	for unused_log in SupportConstructionSite.REQUIRED_LOGS:
+	for unused_log in int(building.construction_recipe().get("log", 0)):
 		building.deliver_log()
 	var construction_sites: Array = game.get("_construction_sites")
 	construction_sites.append(building)

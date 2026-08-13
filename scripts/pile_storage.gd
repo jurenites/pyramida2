@@ -2,9 +2,14 @@ class_name PileStorage
 extends Node3D
 
 const CitizenNavigationPolicyScript = preload("res://scripts/citizen_navigation_policy.gd")
+const ObjAssetScript = preload("res://scripts/obj_asset.gd")
 
 const Palette = preload("res://scripts/game_palette.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
+const PILE_ASSET_PATH := "res://data/buildings/pile.obj"
+const PLATFORM_ASSET_PATH := "res://data/buildings/platform.obj"
+const LOG_ASSET_PATH := "res://data/props/log_v1.obj"
+const BUSH_ASSET_PATH := "res://data/props/bush_v1.obj"
 const DEFAULT_FOOTPRINT: Array[Vector2i] = [
 	Vector2i(0, 0), Vector2i(1, 0),
 	Vector2i(0, 1), Vector2i(1, 1),
@@ -81,6 +86,28 @@ func nearest_delivery_world_position(from_position: Vector3) -> Vector3:
 			nearest_position = cell_centre
 			nearest_distance = distance
 	return nearest_position
+
+
+func delivery_approach_world_positions() -> Array[Vector3]:
+	var occupied: Dictionary = {}
+	for world_cell in world_footprint_cells():
+		occupied[world_cell] = true
+	var approach_cells: Dictionary = {}
+	for world_cell_value in occupied:
+		var world_cell: Vector2i = world_cell_value
+		for neighbour_offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var candidate: Vector2i = world_cell + neighbour_offset
+			if not occupied.has(candidate):
+				approach_cells[candidate] = true
+	var result: Array[Vector3] = []
+	for approach_cell_value in approach_cells:
+		var approach_cell: Vector2i = approach_cell_value
+		result.append(Vector3(
+			float(approach_cell.x) + 0.5,
+			global_position.y,
+			float(approach_cell.y) + 0.5
+		))
+	return result
 
 
 static func convex_boundary_vertices(cells: Array[Vector2i]) -> Array[Vector2i]:
@@ -218,19 +245,17 @@ func _build_structure() -> void:
 	add_child(_structure_root)
 
 	var boundary_vertices := convex_boundary_vertices(_footprint_cells)
+	var pile_parts := ObjAssetScript.load_objects(PILE_ASSET_PATH)
+	var marker_names: Array[String] = ["stone_sw", "stone_se", "stone_nw", "stone_ne"]
 	for corner_index in boundary_vertices.size():
 		var vertex := boundary_vertices[corner_index]
-		var marker_mesh := SphereMesh.new()
-		marker_mesh.radius = 0.11
-		marker_mesh.height = 0.16
-		marker_mesh.radial_segments = 7
-		marker_mesh.rings = 3
+		var source_name := marker_names[corner_index % marker_names.size()]
+		var marker_mesh := pile_parts.get(source_name) as Mesh
 		var marker := MeshInstance3D.new()
 		marker.name = "PileBoundaryStone_%d" % corner_index
 		marker.mesh = marker_mesh
-		marker.position = Vector3(float(vertex.x) - 0.5, 0.08, float(vertex.y) - 0.5)
-		marker.rotation.y = float(corner_index) * 0.71
-		marker.scale = Vector3(1.0, 0.9, 0.82) if corner_index % 2 == 0 else Vector3(0.84, 0.95, 1.0)
+		var target_centre := Vector3(float(vertex.x) - 0.5, 0.08, float(vertex.y) - 0.5)
+		marker.position = target_centre - marker_mesh.get_aabb().get_center()
 		marker.material_override = _flat_material(Palette.LIMESTONE_SIDE)
 		marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_structure_root.add_child(marker)
@@ -265,11 +290,10 @@ func _rebuild_contents() -> void:
 		_contents_root.remove_child(child)
 		child.queue_free()
 	var stack_centre := _footprint_local_centre()
+	var log_mesh := ObjAssetScript.load_objects(LOG_ASSET_PATH).get("LooseLog") as Mesh
 	for log_index in mini(stored_logs, LOG_CAPACITY):
 		var layer := floori(float(log_index) / float(LOGS_PER_LAYER))
 		var slot := log_index % LOGS_PER_LAYER
-		var log_tool := SurfaceTool.new()
-		log_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var along_z := layer % 2 == 1
 		var lateral := (float(slot) - float(LOGS_PER_LAYER - 1) * 0.5) * LOG_SLOT_SPACING
 		var centre := stack_centre + Vector3(
@@ -277,55 +301,48 @@ func _rebuild_contents() -> void:
 			LOG_LAYER_BASE_Y + float(layer) * LOG_LAYER_RISE,
 			0.0 if along_z else lateral
 		)
-		var axis := Vector3(0.0, 0.0, WoodVisual.LOG_LENGTH) if along_z else Vector3(WoodVisual.LOG_LENGTH, 0.0, 0.0)
-		WoodVisual.append_tapered_segment(
-			log_tool, centre - axis * 0.5, centre + axis * 0.5,
-			WoodVisual.LOG_START_RADIUS, WoodVisual.LOG_END_RADIUS, true, true, 6
-		)
-		log_tool.generate_normals()
 		var stored_log := MeshInstance3D.new()
 		stored_log.name = "StoredLog_%02d" % (log_index + 1)
 		stored_log.set_meta("stack_layer", layer)
 		stored_log.set_meta("stack_slot", slot)
 		stored_log.set_meta("along_z", along_z)
-		stored_log.mesh = log_tool.commit()
+		stored_log.mesh = log_mesh
+		stored_log.rotation.y = PI * 0.5 if along_z else 0.0
+		stored_log.position = centre - stored_log.basis * log_mesh.get_aabb().get_center()
 		stored_log.material_override = WoodVisual.binary_material(Palette.ROOF_LOG)
 		_contents_root.add_child(stored_log)
 
 	var visible_food_capacity := _footprint_cells.size() * 6
+	var berry_mesh := ObjAssetScript.load_objects(BUSH_ASSET_PATH).get("BatchedBerryDots_01") as Mesh
 	for food_index in mini(stored_calories, visible_food_capacity):
 		var footprint_index := food_index % _footprint_cells.size()
 		var local_food_index := floori(float(food_index) / float(_footprint_cells.size()))
 		var local_cell := _footprint_cells[footprint_index]
-		var berry_mesh := SphereMesh.new()
-		berry_mesh.radius = 0.055
-		berry_mesh.height = 0.1
-		berry_mesh.radial_segments = 6
-		berry_mesh.rings = 3
 		var berry := MeshInstance3D.new()
 		berry.mesh = berry_mesh
-		berry.position = Vector3(
+		var berry_centre := Vector3(
 			float(local_cell.x) - 0.25 + float(local_food_index % 3) * 0.12,
 			0.1 + float(floori(float(local_food_index) / 3.0)) * 0.1,
 			float(local_cell.y) + 0.28
 		)
+		berry.position = berry_centre - berry_mesh.get_aabb().get_center()
 		berry.material_override = _flat_material(Palette.WOODEN_ROOF)
 		_contents_root.add_child(berry)
 
 	var stored_planks := resource_count("plank")
+	var plank_mesh := ObjAssetScript.load_objects(PLATFORM_ASSET_PATH).get("deck_1") as Mesh
 	for plank_index in stored_planks:
 		var plank_layer := floori(float(plank_index) / 4.0)
 		var plank_slot := plank_index % 4
-		var plank_mesh := BoxMesh.new()
-		plank_mesh.size = Vector3(0.92, 0.08, 0.16)
 		var stored_plank := MeshInstance3D.new()
 		stored_plank.name = "StoredPlank_%02d" % (plank_index + 1)
 		stored_plank.mesh = plank_mesh
-		stored_plank.position = stack_centre + Vector3(
+		var plank_centre := stack_centre + Vector3(
 			0.0,
 			0.06 + float(plank_layer) * 0.09,
 			-0.72 + float(plank_slot) * 0.18
 		)
+		stored_plank.position = plank_centre - plank_mesh.get_aabb().get_center()
 		stored_plank.material_override = _flat_material(Palette.WOODEN_ROOF)
 		stored_plank.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_contents_root.add_child(stored_plank)

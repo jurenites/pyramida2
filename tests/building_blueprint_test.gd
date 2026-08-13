@@ -13,6 +13,7 @@ var _failures: Array[String] = []
 func _initialize() -> void:
 	_test_official_blueprint_loads()
 	_test_text_round_trip_preserves_logical_parts()
+	_test_non_finite_geometry_is_rejected()
 	_test_one_part_per_sub_unit_contract()
 	_test_new_building_assets_and_export()
 	if _failures.is_empty():
@@ -49,6 +50,21 @@ func _test_text_round_trip_preserves_logical_parts() -> void:
 	_expect(restored.load_dictionary(json.data as Dictionary), restored.last_error)
 	_expect(restored.parts == source.parts, "Round trip changed logical blueprint parts")
 	_expect(int(restored.recipe().get("plank", 0)) == 1, "Recipe must derive one Plank")
+
+
+func _test_non_finite_geometry_is_rejected() -> void:
+	var source := BuildingBlueprintScript.create_empty("non_finite", "Non-finite")
+	var invalid_part := BuildingBlueprintScript.make_sub_unit_part(
+		"log", Vector3i.ZERO, "y", "wood", 0
+	)
+	invalid_part["geometry"]["start"][0] = NAN
+	var source_dictionary := source.to_dictionary()
+	source_dictionary["parts"] = [invalid_part]
+	var restored := BuildingBlueprintScript.new()
+	_expect(
+		not restored.load_dictionary(source_dictionary),
+		"Blueprint geometry containing NaN must be rejected"
+	)
 
 
 func _test_one_part_per_sub_unit_contract() -> void:
@@ -91,7 +107,7 @@ func _test_new_building_assets_and_export() -> void:
 	_expect(pile.last_error.is_empty(), pile.last_error)
 	_expect(pile.bounds_world_units == Vector3i(2, 1, 2), "Pile asset does not occupy its 2x2 footprint")
 	_expect(pile.recipe().is_empty(), "Pile asset is not free")
-	var export_path := "/tmp/pyramida_building_exports/platform.obj"
+	var export_path := "/tmp/pyramida_building_assets/platform.obj"
 	_expect(ObjExporter.export_to_file(platform, export_path) == OK, "Platform OBJ export failed")
 	var exported_obj := FileAccess.get_file_as_string(export_path)
 	_expect(exported_obj.contains("o post_sw"), "OBJ export lost the Platform Log objects")

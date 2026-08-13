@@ -1,3 +1,298 @@
 Grass shaders and a Coud perlin noise shader.
 https://www.youtube.com/watch?v=OxsuWDtjuGw&t=11s
 https://github.com/DylearnDev/Dylearn-3D-Pixel-Art-Grass-Demo 
+ trasncription of a video into a text:
+	1. Spawning & Instance SetupNode Type: Use a MultiMeshInstance3D spawning Quad meshes over the ground plane [00:42].Alignment: Quads are set to face the Z-direction upon spawning so their normals align with the terrain underneath for proper lighting calculations [00:49].Base Shader Setup:Albedo texture set to the grass sprite with alpha_scissor = 1.0 [01:06].Billboard mode enabled so quads face the camera [01:14].Shadow casting disabled on individual quads for performance [01:14].2. World-Space Wind & Dual-Noise SamplingNon-Repeating Wind Animation: Instead of simple sine rotation, sample a world-space noise texture driven by time, speed, and direction [03:22].Irrationally Shifted Dual Sampling:Sample Noise Texture 1 moving in direction $A$ [04:21].Sample Noise Texture 2 moving in direction $B$ with scaled UVs using an irrational constant like $\pi$ so patterns never repeat [04:28].Multiply the two sampled noise values and clamp between 0.0 and 1.0 [04:48].World-Space Rotation Axis: Take the wind direction vector and compute its perpendicular vector to form the rotation axis [03:43].3. Orthographic Fake Perspective TrickIn orthographic projections, world-space rotation can lose depth clarity [05:14].Fragment Shader Scaling:Subtract 0.5 from UV.x [06:03].Scale UV.x by a factor derived from (1.0 - UV.y) $\times$ Wind Noise $\times$ dot(WindDir, CameraForward) [06:26, 07:23].Add back 0.5 and clamp between 0.0 and 1.0 [07:35].This squashes/stretches the top of the grass blade proportional to how far it sways towards/away from an orthographic camera [06:47].4. Interactive Character Displacement SystemGlobal Character Manager (GDScript Node):Tracks entities in a "characters" group [11:54].Maintains a fixed-size Vector4 array (e.g., 64 elements) containing Vector4(x, y, z, radius) [12:06].Workaround for Godot fixed array sizes: Inactive slots are set to Vector4(0, 0, 0, 0) so zero radius produces zero displacement [12:46].Displacement Calculation in Vertex/Fragment:Compute distance from grass quad origin to each active position [10:28].Mask intensity using 1.0 - (distance / radius), raised to an exponent for falloff [10:39].Project direction vector using dot() against camera forward and side vectors to separate displacement along View-Space X and Z axes [10:54, 11:11].Low Frame Rate Phase Stepping (Stylized Feel):Quantize time per instance using hash(world_position) % frame_time to phase-shift each leaf individually [09:04].Update character positions on tick-rates in GDScript to mimic stop-motion / hand-drawn frame rates without causing global scene lag [13:06].5. Hybrid Toon Shader & Dynamic Cloud ShadowsHybrid Toon Lighting:Uses Godot 4.3+ LIGHT_VERTEX built-in [01:55].Calculates discrete light bands (stepped toon), but applies a subtle smoothstep across band boundaries to eliminate harsh flickering artifacts on thin grass edges [14:13, 14:40].Global Shadow Marching (Clouds):Store a 2D cloud noise texture as a Global Shader Parameter [15:23].Use a Shader Include file (.gdshaderinc) with a get_cloud_noise() function [16:08].Ray-marches along the light direction to intersect world-space cloud height ($Y$), sampling the moving noise texture to multiply diffuse lighting directly across terrain and grass [15:44].
+	
+Here is a complete, production-ready Godot 4 spatial shader (stylized_grass.gdshader) that implements the core techniques outlined in the video breakdown:Y-Billboard Facing (keeps grass standing upright while facing the camera).Dual-Noise Wind Sway (samples two offset noise textures with $\pi$-scaled ratios to prevent repeating sway cycles).Perpendicular World-Space Rotation.Orthographic Fake Perspective Scaling (squashes/stretches the top of the sprite in the fragment shader based on view alignment).
+shader_type spatial;
+render_mode cull_disabled, depth_draw_alpha_prepass;
+
+// --- TEXTURE UNIFORMS ---
+group_uniforms TextureSettings;
+uniform sampler2D albedo_texture : source_color, filter_nearest;
+uniform float alpha_scissor_threshold : hint_range(0.0, 1.0) = 0.5;
+
+// --- WIND UNIFORMS ---
+group_uniforms WindSettings;
+uniform sampler2D wind_noise_texture : hint_default_white;
+uniform vec2 wind_direction = vec2(1.0, 0.0);
+uniform float wind_speed : hint_range(0.0, 5.0) = 1.0;
+uniform float wind_strength : hint_range(0.0, 2.0) = 0.4;
+uniform float divergence_angle_deg : hint_range(0.0, 90.0) = 30.0;
+
+// --- FAKE PERSPECTIVE UNIFORMS ---
+group_uniforms PerspectiveSettings;
+uniform float fake_perspective_intensity : hint_range(0.0, 2.0) = 0.6;
+
+// --- VARYINGS (Vertex to Fragment) ---
+varying float v_wind_sample;
+varying float v_wind_camera_alignment;
+
+// Helper 2D Rotation Matrix
+mat2 rotate2d(float angle) {
+	float s = sin(angle);
+	float c = cos(angle);
+	return mat2(vec2(c, -s), vec2(s, c));
+}
+
+void vertex() {
+	// 1. Get world space position of the quad center
+	vec3 world_pos = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	vec2 norm_wind = normalize(wind_direction);
+
+	// 2. Dual-Noise Wind Calculation (Non-repeating pattern)
+	float rad = radians(divergence_angle_deg);
+	vec2 dir_a = rotate2d(rad) * norm_wind;
+	vec2 dir_b = rotate2d(-rad) * norm_wind;
+
+	// Sample 1: First direction
+	vec2 uv_a = world_pos.xz * 0.1 + dir_a * TIME * wind_speed * 0.1;
+	float noise_a = texture(wind_noise_texture, uv_a).r;
+
+	// Sample 2: Diverged direction scaled using Pi so it never repeats synchronously
+	vec2 uv_b = world_pos.xz * 0.1 * 3.14159265 + dir_b * TIME * (wind_speed * 0.731) * 0.1;
+	float noise_b = texture(wind_noise_texture, uv_b).r;
+
+	// Combine & clamp noises
+	v_wind_sample = clamp(noise_a * noise_b * 2.0, 0.0, 1.0);
+
+	// 3. Height Gradient Mask (0.0 at bottom stem, 1.0 at blade tip)
+	float height_mask = 1.0 - UV.y;
+
+	// 4. Calculate World-Space Sway
+	// Apply displacement to upper vertices proportional to height and wind noise
+	vec2 sway_displacement = norm_wind * (v_wind_sample * wind_strength * height_mask);
+	
+	// Apply displacement before billboarding to preserve world-space wind logic
+	VERTEX.xz += sway_displacement;
+
+	// 5. Y-Axis Billboarding (Quad faces camera while keeping normal standing)
+	// Keeps the bottom attached to terrain while facing view plane
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
+		INV_VIEW_MATRIX[0],
+		INV_VIEW_MATRIX[1],
+		INV_VIEW_MATRIX[2],
+		MODEL_MATRIX[3]
+	);
+
+	// 6. Camera Alignment calculation for Fragment Perspective Trick
+	vec3 camera_forward = -VIEW_MATRIX[2].xyz;
+	v_wind_camera_alignment = abs(dot(norm_wind, normalize(camera_forward.xz)));
+}
+
+void fragment() {
+	// Start with standard mesh UVs
+	vec2 uv = UV;
+
+	// --- FAKE PERSPECTIVE TRICK (For Orthographic/Low-Angle Cameras) ---
+	// Height gradient: 0.0 at ground, 1.0 at blade tip
+	float height_gradient = 1.0 - uv.y;
+
+	// Calculate scaling factor based on wind value, camera alignment, and height gradient
+	float scale = 1.0 + (v_wind_sample * fake_perspective_intensity * v_wind_camera_alignment * height_gradient);
+
+	// Scale around center X axis (subtract 0.5 -> scale -> add 0.5)
+	uv.x = (uv.x - 0.5) * scale + 0.5;
+
+	// Clamp UVs to avoid texture repeating artifacts on edges
+	uv.x = clamp(uv.x, 0.0, 1.0);
+
+	// --- TEXTURE SAMPLING & ALPHA CUTOUT ---
+	vec4 albedo = texture(albedo_texture, uv);
+	
+	ALBEDO = albedo.rgb;
+	ALPHA = albedo.a;
+	ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;
+}
+
+Create a MultiMeshInstance3D node in your scene.Assign a QuadMesh as the mesh resource (size 1.0 x 1.0, orientation centered).Create a new ShaderMaterial on the mesh and attach this shader code.Assign your grass pixel art sprite sheet to albedo_texture and a continuous seamless noise texture (like FastNoiseLite) to wind_noise_texture.
+Here is the complete GDScript code for the CharacterManager node in Godot 4.
+
+This script tracks all active entities in a specified group (e.g., players, citizens, carts), gathers their world positions and displacement radii, packs them into a fixed-size Array[Vector4], and sends them to your foliage ShaderMaterial.
+class_name CharacterManager
+extends Node
+
+## The ShaderMaterial applied to your grass MultiMeshInstance3D or terrain mesh.
+@export var target_material: ShaderMaterial
+
+## Name of the group assigned to entities that displace grass (e.g., Player, Citizens, Vehicles).
+@export var character_group: StringName = &"displacers"
+
+## Must match the exact array size defined in your shader (e.g., uniform vec4 displacer_positions[64]).
+@export var max_characters: int = 64
+
+## Default push radius (in meters) if an entity doesn't define its own 'displacement_radius' variable.
+@export var default_radius: float = 1.5
+
+## Update rate in FPS. Lower values (e.g., 12–24 FPS) create a stylized, stop-motion look.
+@export var update_fps: float = 24.0
+
+# Internal tracking
+var _displacer_data: Array[Vector4] = []
+var _time_since_last_update: float = 0.0
+
+func _ready() -> void:
+	# Initialize array with zeroed Vector4 elements
+	_displacer_data.resize(max_characters)
+	_reset_displacer_data()
+
+func _process(delta: float) -> void:
+	if not is_instance_valid(target_material):
+		return
+
+	# Rate-limit updates to match desired stylized update_fps
+	_time_since_last_update += delta
+	var update_interval: float = 1.0 / max(update_fps, 1.0)
+
+	if _time_since_last_update >= update_interval:
+		_time_since_last_update -= update_interval
+		_update_shader_displacers()
+
+func _update_shader_displacers() -> void:
+	var displacers: Array[Node] = get_tree().get_nodes_in_group(character_group)
+	var active_count: int = mini(displacers.size(), max_characters)
+
+	# Populate array with active entities
+	for i in range(active_count):
+		var node: Node = displacers[i]
+		
+		if node is Node3D and node.is_inside_tree():
+			var pos: Vector3 = (node as Node3D).global_position
+			
+			# Check if the node defines its own custom radius, otherwise fallback to default
+			var radius: float = default_radius
+			if "displacement_radius" in node:
+				radius = node.get("displacement_radius")
+
+			# Vector4 format: (X, Y, Z, Radius)
+			_displacer_data[i] = Vector4(pos.x, pos.y, pos.z, radius)
+
+	# Fill remaining array slots with zeroed entries (Radius = 0 means no displacement)
+	for i in range(active_count, max_characters):
+		_displacer_data[i] = Vector4.ZERO
+
+	# Send updated array uniform to the shader
+	target_material.set_shader_parameter("displacer_positions", _displacer_data)
+
+func _reset_displacer_data() -> void:
+	for i in range(max_characters):
+		_displacer_data[i] = Vector4.ZERO
+
+How to Hook This Up in Godot 4
+Attach the Script: Add a Node to your scene named CharacterManager and attach this script.
+
+Assign the Material: Drag the ShaderMaterial from your grass mesh/MultiMesh into the Target Material property in the Inspector.
+
+Group Your Entities:
+
+Select your Player, NPC, or Citizen nodes.
+
+Go to Node tab -> Groups and add them to the group "displacers".
+
+Custom Radius (Optional): If you want larger entities (like wagons or heavy units) to push more grass, add a script variable to those nodes:
+
+GDScript
+@export var displacement_radius: float = 3.0
+Matching Shader Uniform Code
+Ensure your grass .gdshader file includes the matching uniform array definition:
+
+Code snippet
+// Must match the max_characters variable in CharacterManager.gd
+uniform vec4 displacer_positions[64];
+
+// Example usage inside vertex() or fragment()
+void vertex() {
+    vec3 world_pos = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vec3 total_displacement = vec3(0.0);
+
+    for (int i = 0; i < 64; i++) {
+        vec4 displacer = displacer_positions[i];
+        float radius = displacer.w;
+        
+        // Skip unused slots where radius is 0.0
+        if (radius <= 0.001) continue;
+
+        vec3 displacer_pos = displacer.xyz;
+        float dist = distance(world_pos, displacer_pos);
+
+        if (dist < radius) {
+            vec3 push_dir = normalize(world_pos - displacer_pos);
+            float falloff = pow(1.0 - (dist / radius), 2.0);
+            total_displacement += push_dir * falloff;
+        }
+    }
+
+    VERTEX += total_displacement;
+}
+
+Here is a complete Godot 4 spatial shader snippet featuring the Hybrid Toon Shading logic described in the video.
+
+This shader calculates discrete light bands (like a standard toon shader) but applies a subtle smoothstep transition across the band boundaries. This removes harsh flickering artifacts on thin grass blades while maintaining a clean, stylized toon aesthetic.
+
+Hybrid Toon Shader (hybrid_toon_grass.gdshader)
+
+Code snippetshader_type spatial;
+render_mode cull_disabled, depth_draw_alpha_prepass;
+
+group_uniforms HybridToonSettings;
+## Number of discrete lighting bands (cuts) across the light ramp.
+uniform int toon_cuts : hint_range(1, 8) = 3;
+
+## Width of the smooth gradient transition between light bands (0 = hard edge, 1 = fully soft).
+uniform float band_smoothness : hint_range(0.0, 0.5) = 0.15;
+
+## Color multiplier for shadow regions.
+uniform vec3 shadow_color : source_color = vec3(0.15, 0.2, 0.35);
+
+group_uniforms TextureSettings;
+uniform sampler2D albedo_texture : source_color, filter_nearest;
+uniform float alpha_scissor_threshold : hint_range(0.0, 1.0) = 0.5;
+
+void fragment() {
+	vec4 albedo = texture(albedo_texture, UV);
+	ALBEDO = albedo.rgb;
+	ALPHA = albedo.a;
+	ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;
+}
+
+void light() {
+	// 1. Calculate standard directional light intensity (N dot L)
+	// Normalization ensures correct vector calculations across varying surfaces
+	float NdotL = dot(NORMAL, LIGHT);
+
+	// Godot 4 LIGHT_VERTEX built-in usage:
+	// Maps light strength to a [0.0, 1.0] range
+	float raw_light = clamp(NdotL * ATTENUATION, 0.0, 1.0);
+
+	// 2. Hybrid Toon Lighting Calculation
+	float cuts = float(toon_cuts);
+	
+	// Width of a single light band
+	float band_width = 1.0 / cuts;
+
+	// Determine current step index and exact band threshold boundary
+	float current_step = floor(raw_light * cuts);
+	float threshold = current_step * band_width;
+
+	// 3. Smoothstep Transition Boundary
+	// Create a gradient region around the threshold to smooth out snaps
+	float half_smooth = band_smoothness * band_width * 0.5;
+	float lower_edge = threshold - half_smooth;
+	float upper_edge = threshold + half_smooth;
+
+	// Calculate smooth blend factor across the transition boundary
+	float step_blend = smoothstep(lower_edge, upper_edge, raw_light);
+
+	// Interpolate between the lower and upper toon levels
+	float toon_light = (current_step - 1.0 + step_blend) * band_width;
+	toon_light = clamp(toon_light, 0.0, 1.0);
+
+	// 4. Combine Final Diffuse Lighting
+	// Blend base surface albedo between shadow tint and full light
+	vec3 final_albedo = mix(ALBEDO * shadow_color, ALBEDO, toon_light);
+
+	// Apply light color and intensity
+	DIFFUSE_LIGHT += final_albedo * LIGHT_COLOR * ATTENUATION;
+}
+How It Works Under the Hood:Custom light() Function: In Godot 4 spatial shaders, overriding the light() function gives you direct control over diffuse lighting per-pixel/per-light.Discrete Band Thresholds: The toon_cuts integer divides the $0.0 - 1.0$ lighting intensity range into equal bands (e.g., 3 cuts = bands at 0.0, 0.33, 0.66, 1.0).smoothstep() Filtering: Instead of instantly snapping from band 1 to band 2 when light intensity crosses a threshold, smoothstep() creates a narrow, customizable gradient buffer controlled by band_smoothness. This stops thin grass blades from rapidly popping on edge boundaries as the camera or lights move.

@@ -20,7 +20,7 @@ func _initialize() -> void:
 			printerr("Unable to load %s: %s" % [source_path, blueprint.last_error])
 			failed = true
 			continue
-		var destination_path := "res://data/buildings/exports/%s.obj" % building_id
+		var destination_path := "res://data/buildings/%s.obj" % building_id
 		var export_error := ObjExporter.export_to_file(blueprint, destination_path)
 		if export_error != OK:
 			printerr("Unable to export %s: %s" % [destination_path, error_string(export_error)])

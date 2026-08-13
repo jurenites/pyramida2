@@ -62,7 +62,9 @@ func _run() -> void:
 	)
 	var selection_outline := game.get("_selection_outline_root") as MultiMeshInstance3D
 	game.call("_update_world_selection_outline")
-	_check(selection_outline.visible, "Selected Construction Site has no white outline")
+	var mesh_outlines: Array = game.get("_selection_mesh_outlines")
+	_check(not selection_outline.visible, "Selected Construction Site kept the old cube-edge outline")
+	_check(not mesh_outlines.is_empty(), "Selected Construction Site has no white mesh outline")
 	var inspector := game.get("_construction_inspector") as ConstructionInspector
 	_check(inspector.visible, "Selected Construction Site does not show its progress readout")
 	_check(

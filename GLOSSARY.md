@@ -1,11 +1,8 @@
 # Pyramida 2 — Glossary
 
-Status: terminology only, subordinate to code and tests.
-
+Terminology game specific only (no need to explain some basics), this document subordinate to code and tests.
 Definitions provide names for implemented and deferred concepts; they do not claim that every entry is playable. [README.md](README.md) is the current behaviour summary. If terminology prose conflicts with code, update the prose rather than restoring obsolete behaviour.
-
 The glossary favours explicit repetition over pronouns when repetition makes the subject easier to follow. A definition may repeat the complete term within one sentence or paragraph instead of replacing the complete term with “it” or another ambiguous reference.
-
 Glossary terminology is written for design discussion and implementation clarity. Player-facing labels are separate and deliberately shorter. [localization/ui_text.csv](localization/ui_text.csv) is the authoritative catalog for player-facing English, text keys, character limits, interface locations, and translation guidance.
 
 ## Anchor Node
@@ -18,7 +15,7 @@ A `Building` is a constructed entity assembled from physical resources. A Buildi
 
 ## Building Blueprint
 
-A `Building Blueprint` is a versioned, human-readable definition of a Building's logical parts, transforms, materials, resources, Sub-Unit occupancy, Cosmetic Variants, and future grouping. The same Building Blueprint can be edited in the Building Constructor, stored as a player file, shipped under `res://data/buildings/` as an official prefab, rendered in the world, or wrapped by a Construction Site. A Building Blueprint is not a flattened mesh.
+A `Building Blueprint` is a versioned, human-readable definition of a Building's logical parts, transforms, materials, resources, Sub-Unit occupancy, Cosmetic Variants, and future grouping. An official Building Blueprint may bind each part ID to a same-named object in a neighboring Blender-editable OBJ. The Building Blueprint remains authoritative for meaning while the OBJ is authoritative for vertices. A Building Blueprint is not a flattened mesh.
 
 ## Building Mode
 

@@ -7,20 +7,14 @@ const WoodVisual = preload("res://scripts/wood_visual.gd")
 const BuildingBlueprintScript = preload("res://scripts/building_blueprint.gd")
 const BlueprintInstanceScript = preload("res://scripts/building_blueprint_instance.gd")
 const BuildingCatalogScript = preload("res://scripts/building_catalog.gd")
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
+const ObjAssetScript = preload("res://scripts/obj_asset.gd")
 
-const REQUIRED_LOGS := 4
-const LOG_INSTALLATION_SECONDS := 3.0
-const CORNERS := [
-	Vector3(-0.36, 0.0, -0.36),
-	Vector3(0.36, 0.0, -0.36),
-	Vector3(0.36, 0.0, 0.36),
-	Vector3(-0.36, 0.0, 0.36),
-]
+const CONSTRUCTION_SITE_ASSET_PATH := "res://data/buildings/support_construction_site.obj"
 
 var delivered_logs := 0
 var building_id := "support"
 var _assignment_branches: Array[MeshInstance3D] = []
-var _planned_posts: Array[MeshInstance3D] = []
 var _body: StaticBody3D
 var _planning_visible := true
 var _reserved_log_contributors: Dictionary = {}
@@ -133,14 +127,6 @@ func set_planning_visible(planning_is_visible: bool) -> void:
 	for branch in _assignment_branches:
 		if is_instance_valid(branch):
 			branch.visible = is_planned()
-	for post_index in _planned_posts.size():
-		var planned_post := _planned_posts[post_index]
-		if is_instance_valid(planned_post):
-			planned_post.visible = building_id == "support" and _blueprint == null and (
-				_planning_visible
-				and is_planned()
-				and post_index >= delivered_logs
-			)
 	if is_instance_valid(_body):
 		_body.collision_layer = 1
 	_refresh_blueprint_part_visibility()
@@ -155,8 +141,6 @@ func deliver_resource(resource_kind: String) -> bool:
 	var installed := int(_installed_resources.get(resource_kind, delivered_logs if resource_kind == "log" else 0))
 	if installed >= int(recipe.get(resource_kind, 0)):
 		return false
-	if building_id == "support" and resource_kind == "log" and _blueprint == null:
-		_add_support_post(CORNERS[delivered_logs])
 	installed += 1
 	_installed_resources[resource_kind] = installed
 	if resource_kind == "log":
@@ -166,51 +150,16 @@ func deliver_resource(resource_kind: String) -> bool:
 
 
 func _create_preview() -> void:
-	for corner_index in CORNERS.size():
-		var corner: Vector3 = CORNERS[corner_index]
-		var outward := Vector3(corner.x, 0.0, corner.z).normalized()
-		var branch_base := outward * 0.74 + Vector3.UP * 0.025
-		var branch_tip := outward * 0.88 + Vector3.UP * 0.34
-		var branch_tool := SurfaceTool.new()
-		branch_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-		WoodVisual.append_tapered_segment(
-			branch_tool,
-			branch_base,
-			branch_tip,
-			0.055,
-			0.032,
-			true,
-			true,
-			4
-		)
-		branch_tool.generate_normals()
+	var site_objects := ObjAssetScript.load_objects(CONSTRUCTION_SITE_ASSET_PATH)
+	for branch_index in 4:
+		var source_name := "assignment_branch_%02d" % (branch_index + 1)
 		var branch := MeshInstance3D.new()
-		branch.name = "AssignmentBranch%d" % (corner_index + 1)
-		branch.mesh = branch_tool.commit()
+		branch.name = "AssignmentBranch%d" % (branch_index + 1)
+		branch.mesh = site_objects.get(source_name) as Mesh
 		branch.material_override = WoodVisual.binary_material(Palette.ROOF_LOG)
 		branch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 		add_child(branch)
 		_assignment_branches.append(branch)
-
-	if _blueprint == null:
-		var planned_material := StandardMaterial3D.new()
-		planned_material.albedo_color = Color(
-			Palette.PLACEMENT_ALLOWED.r,
-			Palette.PLACEMENT_ALLOWED.g,
-			Palette.PLACEMENT_ALLOWED.b,
-			0.5
-		)
-		planned_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		planned_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		planned_material.roughness = 1.0
-		for post_index in CORNERS.size():
-			var planned_post := MeshInstance3D.new()
-			planned_post.name = "PlannedSupportPost%d" % (post_index + 1)
-			planned_post.mesh = _support_post_mesh(CORNERS[post_index], post_index)
-			planned_post.material_override = planned_material
-			planned_post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			add_child(planned_post)
-			_planned_posts.append(planned_post)
 
 	_create_collision()
 	set_planning_visible(_planning_visible)
@@ -242,9 +191,10 @@ func planned_component_count() -> int:
 
 
 func construction_recipe() -> Dictionary:
-	if _blueprint != null:
-		return _blueprint.recipe()
-	return {"log": REQUIRED_LOGS}
+	var configured_recipe := GameplaySettingsScript.construction_recipe(building_id)
+	if not configured_recipe.is_empty() or building_id == "pile":
+		return configured_recipe
+	return _blueprint.recipe() if _blueprint != null else {}
 
 
 func installed_resource_counts() -> Dictionary:
@@ -257,7 +207,7 @@ func installed_resource_counts() -> Dictionary:
 func labour_seconds_by_resource() -> Dictionary:
 	var result := {}
 	for resource_kind_value in construction_recipe():
-		result[str(resource_kind_value)] = LOG_INSTALLATION_SECONDS
+		result[str(resource_kind_value)] = GameplaySettingsScript.CONSTRUCTION_BLOCK_LABOUR_SECONDS
 	return result
 
 
@@ -271,7 +221,7 @@ func hover_text() -> String:
 	if is_planned() and building_id == "support":
 		return UIText.text(
 			UIText.SUPPORT_MATERIAL_PROGRESS_TEXT,
-			[delivered_logs, REQUIRED_LOGS]
+			[delivered_logs, int(construction_recipe().get("log", 0))]
 		)
 	if is_planned():
 		var progress_parts: Array[String] = []
@@ -295,43 +245,12 @@ func display_name() -> String:
 
 
 func workshop_recipes() -> Array[Dictionary]:
-	return _blueprint.workshop_recipes.duplicate(true) if _blueprint != null else []
+	var definition := BuildingCatalogScript.entry(building_id)
+	return (definition.get("workshop_recipes", []) as Array).duplicate(true)
 
 
 func is_workshop() -> bool:
 	return not workshop_recipes().is_empty()
-
-
-func _add_support_post(corner: Vector3) -> void:
-	var post_index := delivered_logs
-	var post := MeshInstance3D.new()
-	post.name = "FacetedSupportPost%d" % (post_index + 1)
-	post.mesh = _support_post_mesh(corner, post_index)
-	post.material_override = WoodVisual.binary_material(Palette.ROOF_LOG)
-	post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	add_child(post)
-
-
-func _support_post_mesh(corner: Vector3, post_index: int) -> ArrayMesh:
-	var post_tool := SurfaceTool.new()
-	post_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var post_end := corner + Vector3(
-		0.025 if post_index % 2 == 0 else -0.018,
-		1.25,
-		-0.02 if post_index < 2 else 0.024
-	)
-	WoodVisual.append_tapered_segment(
-		post_tool,
-		corner + Vector3.UP * 0.025,
-		post_end,
-		0.13,
-		0.09,
-		true,
-		true,
-		6
-	)
-	post_tool.generate_normals()
-	return post_tool.commit()
 
 
 func _create_collision() -> void:

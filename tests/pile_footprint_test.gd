@@ -45,6 +45,12 @@ func _run() -> void:
 	)
 	var nearest := pile.nearest_delivery_world_position(Vector3(12.5, 0.0, 21.5))
 	_check(nearest == Vector3(11.5, 0.0, 21.5), "Delivery does not target the nearest Pile World Unit")
+	var approaches := pile.delivery_approach_world_positions()
+	_check(approaches.size() == 8, "A 2x2 Pile must expose eight exterior delivery positions")
+	_check(
+		approaches.has(Vector3(12.5, 0.0, 21.5)),
+		"Pile delivery positions do not stay outside the storage footprint"
+	)
 	_check(pile.expand_with_cell(Vector2i(2, 1)), "Adjacent World Unit did not expand the Pile")
 	_check(pile.storage_world_units == 5, "Expanded Pile does not report five World Units")
 	_check(

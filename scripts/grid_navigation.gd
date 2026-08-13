@@ -1,13 +1,15 @@
 class_name GridNavigation
 extends RefCounted
 
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
+
 const NEIGHBOUR_OFFSETS: Array[Vector2i] = [
 	Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
 	Vector2i(-1, 0), Vector2i(1, 0),
 	Vector2i(-1, 1), Vector2i(0, 1), Vector2i(1, 1),
 ]
-const GROUND_TRAVEL_COST := 1.35
-const ROAD_TRAVEL_COST := 1.0
+static var GROUND_TRAVEL_COST := GameplaySettingsScript.GROUND_TRAVEL_COST
+static var ROAD_TRAVEL_COST := GameplaySettingsScript.ROAD_TRAVEL_COST
 
 
 static func world_cell(world_position: Vector3) -> Vector2i:

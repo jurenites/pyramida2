@@ -5,12 +5,22 @@ const Palette = preload("res://scripts/game_palette.gd")
 const UIText = preload("res://scripts/ui_text_catalog.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
 const GridNavigationScript = preload("res://scripts/grid_navigation.gd")
+const GameplaySettingsScript = preload("res://scripts/gameplay_settings.gd")
 
 signal arrived(citizen: Citizen)
 
-const WALK_SPEED := 2.25
-const STRIDE_LENGTH := 0.62
+## Authored standing mesh reaches 1.655 World Units. Presentation, collision,
+## sleep, selection, and stride all use this one ratio so a Citizen is exactly
+## one World Unit (two 0.5 Sub-Units) tall without changing body proportions.
+const AUTHORED_STANDING_HEIGHT := 1.655
+const WORLD_UNIT_HEIGHT := 1.0
+const CITIZEN_SCALE := WORLD_UNIT_HEIGHT / AUTHORED_STANDING_HEIGHT
+const STRIDE_LENGTH := 0.62 * CITIZEN_SCALE
 const LEG_LENGTH := 0.78
+const SLEEPING_VISUAL_CENTRE_OFFSET := Vector3(-0.81 * CITIZEN_SCALE, 0.0, 0.0)
+const SLEEPING_SELECTION_CENTRE_HEIGHT := 0.31 * CITIZEN_SCALE
+const STANDING_SELECTION_CENTRE_HEIGHT := 0.81 * CITIZEN_SCALE
+const SPEECH_ANCHOR_HEIGHT := 1.88 * CITIZEN_SCALE
 
 var task: Dictionary = {}
 var work_assignment: Dictionary = {}
@@ -43,6 +53,8 @@ var _sleep_bedding: Node3D
 var _sleep_blanket: MeshInstance3D
 var _breathing_chest: MeshInstance3D
 var _breathing_chest_base_scale := Vector3.ONE
+var _contact_shadow: MeshInstance3D
+var _selection_shape: CollisionShape3D
 var _is_chopping := false
 var _chop_progress := 0.0
 var _simulation_speed := 1.0
@@ -58,8 +70,17 @@ func set_simulation_speed(next_speed: float) -> void:
 	_simulation_speed = maxf(0.0, next_speed)
 
 
+func set_contact_shadow_colour(shadow_colour: Color) -> void:
+	if not is_instance_valid(_contact_shadow):
+		return
+	var shadow_material := _contact_shadow.material_override as StandardMaterial3D
+	if shadow_material != null:
+		shadow_material.albedo_color = shadow_colour
+
+
 func _ready() -> void:
 	_build_visual()
+	_update_sleep_presentation(_is_sleeping)
 
 
 func assign_task(destination: Vector3, next_task: Dictionary) -> void:
@@ -114,11 +135,54 @@ func get_status_text() -> String:
 
 
 func speech_anchor_world_position() -> Vector3:
-	return global_position + Vector3.UP * 1.88
+	return global_position + Vector3.UP * SPEECH_ANCHOR_HEIGHT
 
 
 func speech_actor_kind() -> String:
 	return "citizen"
+
+
+func selection_world_position() -> Vector3:
+	var centre_height := (
+		SLEEPING_SELECTION_CENTRE_HEIGHT
+		if _is_sleeping
+		else STANDING_SELECTION_CENTRE_HEIGHT
+	)
+	return global_position + Vector3.UP * centre_height
+
+
+func outline_source_meshes() -> Array[MeshInstance3D]:
+	# Hover follows the articulated body and clothing. Bedding, carried resources,
+	# the pocket Axe, and the contact shadow are feedback/accessory visuals rather
+	# than part of the Citizen silhouette.
+	var result: Array[MeshInstance3D] = []
+	if not is_instance_valid(_visual):
+		return result
+	for mesh_value in _visual.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := mesh_value as MeshInstance3D
+		if (
+			bool(mesh_instance.get_meta("is_world_object_outline", false))
+			or not mesh_instance.is_visible_in_tree()
+			or
+			mesh_instance == _carried_log
+			or mesh_instance == _carried_plank
+			or _node_is_descendant_of(mesh_instance, _carried_food_root)
+			or _node_is_descendant_of(mesh_instance, _axe_root)
+		):
+			continue
+		result.append(mesh_instance)
+	return result
+
+
+func _node_is_descendant_of(node: Node, possible_ancestor: Node) -> bool:
+	if not is_instance_valid(possible_ancestor):
+		return false
+	var current := node.get_parent()
+	while current != null:
+		if current == possible_ancestor:
+			return true
+		current = current.get_parent()
+	return false
 
 
 func set_carrying_log(is_carrying: bool) -> void:
@@ -157,8 +221,10 @@ func set_sleeping(should_sleep: bool) -> void:
 		status_text_key = UIText.CITIZEN_SLEEPING_STATUS_TEXT
 		status_text_arguments.clear()
 		_set_sleep_visual_visible(true)
+		_update_sleep_presentation(true)
 		return
 	_set_sleep_visual_visible(false)
+	_update_sleep_presentation(false)
 	_is_walking = (
 		_resume_walking_after_sleep
 		and _route_index < _route.size()
@@ -252,7 +318,7 @@ func _walk(delta: float) -> void:
 		surface_speed_multiplier = (
 			GridNavigationScript.GROUND_TRAVEL_COST / GridNavigationScript.ROAD_TRAVEL_COST
 		)
-	var maximum_step := WALK_SPEED * surface_speed_multiplier * delta
+	var maximum_step := GameplaySettingsScript.CITIZEN_BAREFOOT_WALK_SPEED * surface_speed_multiplier * delta
 	var direction := offset / distance if distance > 0.0 else Vector3.ZERO
 	var intended_position := global_position + direction * minf(distance, maximum_step)
 	if distance <= maximum_step:
@@ -268,13 +334,15 @@ func _walk(delta: float) -> void:
 
 	global_position = intended_position
 	look_at(global_position + direction, Vector3.UP, true)
-	_walk_phase += TAU * WALK_SPEED * surface_speed_multiplier * delta / STRIDE_LENGTH
+	_walk_phase += TAU * GameplaySettingsScript.CITIZEN_BAREFOOT_WALK_SPEED * surface_speed_multiplier * delta / STRIDE_LENGTH
 	_animate_walk()
 
 
 func _animate_walk() -> void:
 	_set_sleep_visual_visible(false)
 	_visual.rotation = Vector3.ZERO
+	_visual.position.x = 0.0
+	_visual.position.z = 0.0
 	var stride := sin(_walk_phase)
 	_left_leg.rotation.x = stride * 0.4
 	_right_leg.rotation.x = -stride * 0.4
@@ -284,12 +352,14 @@ func _animate_walk() -> void:
 	_right_knee.rotation.x = maxf(0.0, stride) * 0.48
 	_left_elbow.rotation.x = 0.1 + maxf(0.0, stride) * 0.2
 	_right_elbow.rotation.x = 0.1 + maxf(0.0, -stride) * 0.2
-	_visual.position.y = abs(stride) * 0.026
+	_visual.position.y = abs(stride) * 0.026 * CITIZEN_SCALE
 
 
 func _animate_idle() -> void:
 	_set_sleep_visual_visible(false)
 	_visual.rotation = Vector3.ZERO
+	_visual.position.x = 0.0
+	_visual.position.z = 0.0
 	var sway := sin(_elapsed * 2.1)
 	_left_leg.rotation.x = sway * 0.035
 	_right_leg.rotation.x = -sway * 0.035
@@ -299,12 +369,14 @@ func _animate_idle() -> void:
 	_right_knee.rotation.x = 0.035 + maxf(0.0, -sway) * 0.025
 	_left_elbow.rotation.x = 0.1
 	_right_elbow.rotation.x = 0.1
-	_visual.position.y = sway * 0.018
+	_visual.position.y = sway * 0.018 * CITIZEN_SCALE
 
 
 func _animate_chop() -> void:
 	_set_sleep_visual_visible(false)
 	_visual.rotation = Vector3.ZERO
+	_visual.position.x = 0.0
+	_visual.position.z = 0.0
 	# Three complete raised-to-impact arcs occur during one three-second job.
 	var swing_phase := fposmod(_chop_progress * 3.0, 1.0)
 	var impact_arc := sin(swing_phase * PI)
@@ -321,7 +393,10 @@ func _animate_sleep() -> void:
 	_set_sleep_visual_visible(true)
 	var breath := (sin(_elapsed * 0.9) + 1.0) * 0.5
 	_visual.rotation = Vector3(0.0, 0.0, -PI * 0.5)
-	_visual.position = Vector3(0.0, 0.31, 0.0)
+	_visual.position = (
+		SLEEPING_VISUAL_CENTRE_OFFSET
+		+ Vector3.UP * SLEEPING_SELECTION_CENTRE_HEIGHT
+	)
 	_left_leg.rotation.x = 0.18
 	_right_leg.rotation.x = -0.12
 	_left_knee.rotation.x = 0.42
@@ -342,6 +417,7 @@ func _animate_sleep() -> void:
 
 func _build_visual() -> void:
 	_visual = Node3D.new()
+	_visual.scale = Vector3.ONE * CITIZEN_SCALE
 	add_child(_visual)
 	_build_contact_shadow()
 
@@ -414,13 +490,14 @@ func _build_visual() -> void:
 
 	var collision_body := StaticBody3D.new()
 	collision_body.set_meta("world_object", self)
-	var collision_shape := CollisionShape3D.new()
+	_selection_shape = CollisionShape3D.new()
+	_selection_shape.name = "CitizenSelectionShape"
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.25
-	capsule.height = 1.62
-	collision_shape.shape = capsule
-	collision_shape.position.y = 0.81
-	collision_body.add_child(collision_shape)
+	capsule.radius = 0.25 * CITIZEN_SCALE
+	capsule.height = 1.62 * CITIZEN_SCALE
+	_selection_shape.shape = capsule
+	_selection_shape.position.y = STANDING_SELECTION_CENTRE_HEIGHT
+	collision_body.add_child(_selection_shape)
 	add_child(collision_body)
 	# Citizens use the stable contact disc below instead of long dynamic body
 	# shadows. This remains readable at sunrise and sunset without stretching.
@@ -535,6 +612,7 @@ func _clothing_colour() -> Color:
 func _build_sleep_bedding() -> void:
 	_sleep_bedding = Node3D.new()
 	_sleep_bedding.name = "SleepBedding"
+	_sleep_bedding.scale = Vector3.ONE * CITIZEN_SCALE
 	_sleep_bedding.visible = false
 	add_child(_sleep_bedding)
 	var bedding_material := _material(_clothing_colour(), true)
@@ -573,6 +651,27 @@ func _set_sleep_visual_visible(is_visible: bool) -> void:
 		_sleep_blanket.position.y = 0.5
 
 
+func _update_sleep_presentation(is_sleeping_now: bool) -> void:
+	if is_instance_valid(_contact_shadow):
+		_contact_shadow.visible = not is_sleeping_now
+	if is_instance_valid(_sleep_bedding):
+		_sleep_bedding.position = SLEEPING_VISUAL_CENTRE_OFFSET if is_sleeping_now else Vector3.ZERO
+	if is_instance_valid(_visual):
+		_visual.rotation = Vector3(0.0, 0.0, -PI * 0.5) if is_sleeping_now else Vector3.ZERO
+		_visual.position = (
+			SLEEPING_VISUAL_CENTRE_OFFSET + Vector3.UP * SLEEPING_SELECTION_CENTRE_HEIGHT
+			if is_sleeping_now
+			else Vector3.ZERO
+		)
+	if is_instance_valid(_selection_shape):
+		_selection_shape.rotation.z = -PI * 0.5 if is_sleeping_now else 0.0
+		_selection_shape.position = Vector3(
+			0.0,
+			SLEEPING_SELECTION_CENTRE_HEIGHT if is_sleeping_now else STANDING_SELECTION_CENTRE_HEIGHT,
+			0.0
+		)
+
+
 func _add_body_ellipsoid(
 	local_position: Vector3,
 	radii: Vector3,
@@ -594,18 +693,18 @@ func _add_body_ellipsoid(
 
 func _build_contact_shadow() -> void:
 	var shadow_mesh := CylinderMesh.new()
-	shadow_mesh.top_radius = 0.23
-	shadow_mesh.bottom_radius = 0.23
+	shadow_mesh.top_radius = 0.23 * CITIZEN_SCALE
+	shadow_mesh.bottom_radius = 0.23 * CITIZEN_SCALE
 	shadow_mesh.height = 0.012
 	shadow_mesh.radial_segments = 16
 	shadow_mesh.rings = 1
-	var contact_shadow := MeshInstance3D.new()
-	contact_shadow.name = "CitizenContactShadow"
-	contact_shadow.mesh = shadow_mesh
-	contact_shadow.position.y = 0.018
-	contact_shadow.material_override = _material(Palette.FOG_AND_SHADOW, true)
-	contact_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(contact_shadow)
+	_contact_shadow = MeshInstance3D.new()
+	_contact_shadow.name = "CitizenContactShadow"
+	_contact_shadow.mesh = shadow_mesh
+	_contact_shadow.position.y = 0.018
+	_contact_shadow.material_override = _material(Palette.FOG_AND_SHADOW, true)
+	_contact_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_contact_shadow)
 
 
 func _create_articulated_limb(

@@ -3,7 +3,7 @@ prototype_title_text,FOUNDATION PROTOTYPE,32,top_left_title,Prototype title
 prototype_instructions_text,Click/drag: select citizens   •   Click ground: deselect   •   Right-click: move or work\nWASD: move camera   •   Right-click tree/site: assign citizen   •   B: building menu,180,top_left_instructions,Keep the two-line structure by preserving the escaped newline
 build_button_tooltip_text,Build,12,top_right_toolbar,Action label shown while hovering over the building button
 greenery_button_tooltip_text,Manage greenery,24,top_right_toolbar,Opens the mode for moving Bushes and Tree Stumps
-landscape_button_tooltip_text,Modify landscape,24,top_right_toolbar,Opens World Unit soil addition and removal tools
+landscape_button_tooltip_text,Terraforming,24,top_right_toolbar,Opens World Unit soil addition and removal tools
 population_tooltip_text,Population,16,top_left_status,Total number of citizens in the current simulation
 simulation_speed_tooltip_text,Speed,24,top_right_toolbar,Click to cycle between one two and four times simulation speed
 remove_building_tooltip_text,Remove building,24,bottom_construction_catalog,Action label shown above the dotted Building removal tool
@@ -30,7 +30,7 @@ compass_button_tooltip_text,Reset view,16,bottom_right_compass,Action label show
 building_rotate_hotkey_text,↻  R,8,selected_construction_site_hotkey_hint,Show only while the selected Building remains unfinished; do not expose the reverse modifier here
 building_mode_label_text,BUILD,16,top_left_mode,Short mode label
 greenery_mode_label_text,GREENERY,16,top_left_mode,Shown while moving Bushes or Tree Stumps
-landscape_mode_label_text,LANDSCAPE,16,top_left_mode,Shown while adding or removing terrain cubes
+landscape_mode_label_text,TERRAFORMING,16,top_left_mode,Shown while adding or removing terrain cubes
 citizen_mode_label_text,CITIZEN,16,top_left_mode,Shown whenever one or more Citizens are selected for orders
 command_mode_label_text,COMMAND,16,top_left_mode,Short mode label
 day_count_text,Day %d,16,top_left_day_counter,The number replaces %d

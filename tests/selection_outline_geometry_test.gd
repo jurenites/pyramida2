@@ -1,7 +1,5 @@
 extends SceneTree
 
-const BuildingBlueprintScript = preload("res://scripts/building_blueprint.gd")
-const BlueprintInstanceScript = preload("res://scripts/building_blueprint_instance.gd")
 const MainScene = preload("res://scenes/Main.tscn")
 
 var _failures: Array[String] = []
@@ -28,125 +26,76 @@ func _run() -> void:
 	game.call("_select_building", support)
 	game.call("_update_world_selection_outline")
 	await process_frame
-	var outline := game.get("_selection_outline_root") as MultiMeshInstance3D
-	_check(outline.multimesh.instance_count == 12, "Support does not use all twelve exact cube edges")
-	var support_box := support.selection_outline_local_boxes()[0]
-	var line_width := 0.04
-	var original_transforms: Array[Transform3D] = game.call(
-		"_contained_box_edge_transforms",
-		support_box,
-		support.global_transform,
-		line_width,
-		true
-	)
+	var old_edge_outline := game.get("_selection_outline_root") as MultiMeshInstance3D
+	var support_outlines: Array = game.get("_selection_mesh_outlines")
+	var support_sources: Array = game.call("_outline_source_meshes", support)
+	var visible_support_source_count := 0
+	for support_source_value in support_sources:
+		if (support_source_value as MeshInstance3D).is_visible_in_tree():
+			visible_support_source_count += 1
+	_check(not old_edge_outline.visible, "Selected Support kept the old box-edge outline")
 	_check(
-		_outline_is_inside_local_box(
-			original_transforms,
-			support.global_transform,
-			support_box,
-			line_width
-		),
-		"Support outline extends outside its occupied World Unit shape"
+		support_outlines.size() == visible_support_source_count,
+		"Selected Support does not have one hull outline per visible source mesh"
 	)
-	var original_local_origins := _outline_local_origins(original_transforms, support.global_transform)
-	support.rotation.y = PI * 0.25
-	var rotated_transforms: Array[Transform3D] = game.call(
-		"_contained_box_edge_transforms",
-		support_box,
-		support.global_transform,
-		line_width,
-		true
-	)
-	var rotated_local_origins := _outline_local_origins(rotated_transforms, support.global_transform)
-	_check(
-		_vector_arrays_are_equal(original_local_origins, rotated_local_origins),
-		"Support outline changes size or shape when the Building rotates"
-	)
-
-	var pile := PileStorage.new()
-	pile.configure_footprint(PileStorage.DEFAULT_FOOTPRINT)
-	_check(
-		pile.selection_outline_local_boxes().size() == 4,
-		"Pile outline does not preserve its four occupied World Units"
-	)
-
-	var blueprint := BuildingBlueprintScript.create_empty("outline_test", "Outline Test")
-	blueprint.parts.append(BuildingBlueprintScript.make_sub_unit_part(
-		"block", Vector3i(1, 0, 0), "x", "limestone", 0
-	))
-	var blueprint_instance := BlueprintInstanceScript.new() as BuildingBlueprintInstance
-	blueprint_instance.blueprint = blueprint
-	var sub_unit_boxes := blueprint_instance.selection_outline_local_boxes()
-	_check(sub_unit_boxes.size() == 1, "Blueprint part has no occupied Sub-Unit outline box")
-	if sub_unit_boxes.size() == 1:
+	for outline_value in support_outlines:
+		var outline := outline_value as MeshInstance3D
+		_check(outline.mesh != null, "Support hull outline has no source Mesh")
 		_check(
-			sub_unit_boxes[0].size.is_equal_approx(Vector3.ONE * 0.5),
-			"Blueprint part outline is not exactly one half-size Sub-Unit"
-		)
-		var sub_unit_transforms: Array[Transform3D] = game.call(
-			"_contained_box_edge_transforms",
-			sub_unit_boxes[0],
-			Transform3D.IDENTITY,
-			line_width,
-			true
+			outline.material_override is ShaderMaterial,
+			"Support hull outline does not use the shared silhouette shader"
 		)
 		_check(
-			_outline_is_inside_local_box(
-				sub_unit_transforms,
-				Transform3D.IDENTITY,
-				sub_unit_boxes[0],
-				line_width
-			),
-			"White edge prisms overhang a half-size Sub-Unit"
+			bool(outline.get_meta("is_world_object_outline", false)),
+			"Support hull is not marked against recursive outlining"
 		)
+
+	var tree := WorldItem.new()
+	tree.configure("tree", 17)
+	game.add_child(tree)
+	await process_frame
+	game.call("_set_hover_outline_target", tree, tree.global_position, false)
+	var tree_outlines: Array = game.get("_hover_mesh_outlines")
+	_check(tree_outlines.size() > 1, "Hovered Tree is reduced to one bounding shape")
+
+	var citizen := Citizen.new()
+	game.add_child(citizen)
+	await process_frame
+	game.call("_set_hover_outline_target", citizen, citizen.global_position, false)
+	var citizen_outlines: Array = game.get("_hover_mesh_outlines")
+	var citizen_sources := citizen.outline_source_meshes()
+	_check(
+		citizen_outlines.size() == citizen_sources.size(),
+		"Citizen hover outline does not follow all body and clothing meshes"
+	)
+	for outline_value in citizen_outlines:
+		var source_id := int((outline_value as MeshInstance3D).get_meta("outline_source_id", 0))
+		var source_node := instance_from_id(source_id) as MeshInstance3D
+		_check(
+			source_node != null and not citizen.get_node("SleepBedding").is_ancestor_of(source_node),
+			"Citizen hover outline includes sleep bedding"
+		)
+	var citizen_selection: Array[Citizen] = [citizen]
+	game.call("_set_selected_citizens", citizen_selection)
+	game.call("_update_world_selection_outline")
+	_check(
+		(game.get("_selection_mesh_outlines") as Array).is_empty(),
+		"Selected Citizen retained a body outline instead of only the ground circle"
+	)
+
+	game.call("_select_ground_tile", Vector3(0.5, 0.0, 0.5))
+	game.call("_update_world_selection_outline")
+	_check(old_edge_outline.visible, "Ground World Unit lost its rectangular surface outline")
+	_check(
+		old_edge_outline.multimesh.instance_count == 4,
+		"Ground World Unit outline is not its four exact surface edges"
+	)
 
 	if _failures.is_empty():
-		print("PASS: Selection outlines stay inside exact rotated occupancy boxes")
+		print("PASS: mesh silhouettes follow hovered and selected object geometry")
 		quit(0)
 		return
-	printerr("FAIL: Selection outline geometry (%d failures)" % _failures.size())
+	printerr("FAIL: mesh silhouette geometry (%d failures)" % _failures.size())
 	for failure in _failures:
 		printerr("- %s" % failure)
 	quit(1)
-
-
-func _outline_local_origins(
-	transforms: Array[Transform3D],
-	object_transform: Transform3D
-) -> Array[Vector3]:
-	var origins: Array[Vector3] = []
-	var to_local := object_transform.affine_inverse()
-	for edge_transform in transforms:
-		origins.append(to_local * edge_transform.origin)
-	return origins
-
-
-func _vector_arrays_are_equal(first: Array[Vector3], second: Array[Vector3]) -> bool:
-	if first.size() != second.size():
-		return false
-	for value_index in first.size():
-		if not first[value_index].is_equal_approx(second[value_index]):
-			return false
-	return true
-
-
-func _outline_is_inside_local_box(
-	transforms: Array[Transform3D],
-	object_transform: Transform3D,
-	occupied_box: AABB,
-	line_width: float
-) -> bool:
-	var to_local := object_transform.affine_inverse()
-	for edge_transform in transforms:
-		for x_side in 2:
-			for y_side in 2:
-				for z_side in 2:
-					var mesh_corner := Vector3(
-						-line_width * 0.5 if x_side == 0 else line_width * 0.5,
-						-line_width * 0.5 if y_side == 0 else line_width * 0.5,
-						-0.5 if z_side == 0 else 0.5
-					)
-					var local_corner := to_local * (edge_transform * mesh_corner)
-					if not occupied_box.grow(0.0001).has_point(local_corner):
-						return false
-	return true

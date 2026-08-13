@@ -4,11 +4,13 @@ extends Node3D
 const BuildingBlueprintScript = preload("res://scripts/building_blueprint.gd")
 const MaterialCatalog = preload("res://scripts/building_material_catalog.gd")
 const WoodVisual = preload("res://scripts/wood_visual.gd")
+const ObjAssetScript = preload("res://scripts/obj_asset.gd")
 
 var blueprint: BuildingBlueprint
 var editor_gray_mode := false
 var preview_alpha := 1.0
 var _parts_root: Node3D
+var _obj_part_meshes: Dictionary = {}
 
 
 func _ready() -> void:
@@ -64,6 +66,7 @@ func _rebuild() -> void:
 	add_child(_parts_root)
 	if blueprint == null:
 		return
+	_obj_part_meshes = _load_obj_part_meshes()
 	for blueprint_part in blueprint.parts:
 		var rendered_part := _render_part(blueprint_part)
 		if rendered_part != null:
@@ -79,7 +82,13 @@ func _render_part(blueprint_part: Dictionary) -> MeshInstance3D:
 	part_colour.a = clampf(preview_alpha, 0.0, 1.0)
 	var primitive := str(geometry.get("primitive", "log" if part_kind == "log" else "box"))
 	var rendered_part: MeshInstance3D
-	if primitive == "log":
+	var part_id := str(blueprint_part.get("id", "part"))
+	if _obj_part_meshes.has(part_id):
+		rendered_part = MeshInstance3D.new()
+		rendered_part.name = part_id
+		rendered_part.mesh = _obj_part_meshes[part_id] as Mesh
+		rendered_part.material_override = _part_material(part_colour)
+	elif primitive == "log":
 		rendered_part = _render_log(geometry, part_colour, visual_variant)
 	elif primitive == "sphere":
 		rendered_part = _render_sphere(geometry, part_colour, visual_variant)
@@ -90,6 +99,15 @@ func _render_part(blueprint_part: Dictionary) -> MeshInstance3D:
 		rendered_part.set_meta("resource_kind", str(blueprint_part.get("resource", "")))
 		rendered_part.set_meta("decorative", bool(blueprint_part.get("decorative", false)))
 	return rendered_part
+
+
+func _load_obj_part_meshes() -> Dictionary:
+	if blueprint == null or blueprint.source_path.is_empty():
+		return {}
+	var obj_path := blueprint.source_path.get_basename() + ".obj"
+	if not FileAccess.file_exists(obj_path):
+		return {}
+	return ObjAssetScript.load_objects(obj_path)
 
 
 func _render_sphere(
